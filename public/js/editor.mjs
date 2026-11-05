@@ -41,7 +41,9 @@ const state = {
   dirty: false,
   importing: false,
   saving: false,
-  versions: []
+  versions: [],
+  pendingNote: null,  // history note for the next save, e.g. after applying a chat change
+  edits: 0            // counts canvas edits, to detect edits made while a chat request runs
 };
 
 // ---------- helpers ----------
@@ -134,6 +136,7 @@ async function importXml(xml) {
 
 modeler.on('commandStack.changed', () => {
   if (state.importing) return;
+  state.edits++;
   state.dirty = true;
   updateStatus();
 });
@@ -156,6 +159,7 @@ async function loadLatest({ fit = true } = {}) {
   state.baseVersion = p.version;
   state.viewing = null;
   state.dirty = generated;
+  state.pendingNote = null;
   hideBanner();
   updateStatus();
   if (generated) toast('This file had no diagram layout. One was generated: save to keep it.');
@@ -169,7 +173,7 @@ async function save({ force = false } = {}) {
   setStatus('Saving…');
   try {
     const { xml } = await modeler.saveXML({ format: true });
-    const note = state.viewing ? `Restored version from ${fmt(versionDate(state.viewing))}` : null;
+    const note = state.viewing ? `Restored version from ${fmt(versionDate(state.viewing))}` : state.pendingNote;
     const res = await fetch(api, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -192,6 +196,7 @@ async function save({ force = false } = {}) {
     state.baseVersion = body.version;
     state.viewing = null;
     state.dirty = false;
+    state.pendingNote = null;
     hideBanner();
     updateStatus();
     toast('Saved');
@@ -368,9 +373,142 @@ async function autoLayout() {
   }
 }
 
+// ---------- chat ----------
+
+const chat = { id: null, busy: false, files: [] };
+const MAX_ATTACHMENT_BYTES = 40 * 1024 * 1024;
+
+function addChatMessage(role, text) {
+  const li = document.createElement('li');
+  li.className = `chat-msg ${role}`;
+  const body = document.createElement('div');
+  body.className = 'chat-text';
+  body.textContent = text;
+  li.appendChild(body);
+  $('chatLog').appendChild(li);
+  li.scrollIntoView({ block: 'end' });
+  return li;
+}
+
+function addChatMeta(li, text) {
+  const meta = document.createElement('div');
+  meta.className = 'chat-meta';
+  meta.textContent = text;
+  li.appendChild(meta);
+  return meta;
+}
+
+function resetChat() {
+  chat.id = null;
+  $('chatLog').innerHTML = '';
+  addChatMessage('hint', 'Ask Claude to change the diagram, e.g. “Add a manager approval step before Review order”. ' +
+    'Attach PDFs, images or text files for context. Changes appear as unsaved edits that you can undo or save.');
+}
+
+function renderChatFiles() {
+  const box = $('chatFiles');
+  box.innerHTML = '';
+  chat.files.forEach((file, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chat-file';
+    chip.textContent = file.name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Remove';
+    remove.onclick = () => { chat.files.splice(i, 1); renderChatFiles(); };
+    chip.appendChild(remove);
+    box.appendChild(chip);
+  });
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function sendChat() {
+  const message = $('chatInput').value.trim();
+  if (!message || chat.busy) return;
+  const total = chat.files.reduce((sum, f) => sum + f.size, 0);
+  if (total > MAX_ATTACHMENT_BYTES) return toast('Attachments are too large (40 MB max in total)');
+
+  const files = chat.files.splice(0);
+  renderChatFiles();
+  $('chatInput').value = '';
+  const userMsg = addChatMessage('user', message);
+  if (files.length) addChatMeta(userMsg, `Attached: ${files.map((f) => f.name).join(', ')}`);
+  const pending = addChatMessage('assistant pending', 'Claude is working on it… this can take a minute.');
+
+  chat.busy = true;
+  $('chatSend').disabled = true;
+  const { xml: sentXml } = await modeler.saveXML({ format: true });
+  const editsAtSend = state.edits;
+  try {
+    const attachments = await Promise.all(files.map(async (f) => ({ name: f.name, data: await fileToBase64(f) })));
+    const res = await fetch(`${api}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: chat.id, message, xml: sentXml, attachments })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    chat.id = body.chatId;
+    pending.remove();
+    const reply = addChatMessage('assistant', body.reply || '(no reply)');
+    const cost = body.costUsd != null ? ` · $${body.costUsd.toFixed(2)}` : '';
+
+    if (!body.xml) {
+      addChatMeta(reply, `Diagram unchanged${cost}`);
+      return;
+    }
+    if (state.edits !== editsAtSend &&
+        !confirm('You edited the diagram while Claude was working. Apply Claude\'s version anyway? Your edits since sending will be replaced.')) {
+      addChatMeta(reply, `Change not applied${cost}`);
+      return;
+    }
+    const viewbox = modeler.get('canvas').viewbox();
+    try {
+      await importXml(body.xml);
+    } catch (e) {
+      await importXml(sentXml);
+      addChatMeta(reply, `Claude's diagram could not be loaded (${e.message}), nothing was changed${cost}`);
+      return;
+    }
+    modeler.get('canvas').viewbox(viewbox);
+    state.dirty = true;
+    state.pendingNote = `AI: ${message.length > 100 ? message.slice(0, 100) + '…' : message}`;
+    updateStatus();
+    const meta = addChatMeta(reply, `Applied to the diagram, not saved yet${cost} · `);
+    const undo = document.createElement('a');
+    undo.href = '#';
+    undo.textContent = 'undo';
+    undo.onclick = async (e) => {
+      e.preventDefault();
+      await importXml(sentXml);
+      modeler.get('canvas').viewbox(viewbox);
+      state.pendingNote = null;
+      state.dirty = true;
+      updateStatus();
+      meta.textContent = `Change undone${cost}`;
+    };
+    meta.appendChild(undo);
+  } catch (e) {
+    pending.remove();
+    addChatMessage('error', `Error: ${e.message}`);
+  } finally {
+    chat.busy = false;
+    $('chatSend').disabled = false;
+  }
+}
+
 // Poll for saves made by other people.
 async function poll() {
-  if (document.hidden || state.saving) return;
+  if (document.hidden || state.saving || chat.busy) return;
   try {
     const res = await fetch(`${api}/history`);
     if (!res.ok) return;
@@ -417,6 +555,20 @@ $('copyLink').onclick = async () => {
 $('historyBtn').onclick = () => { if (togglePanel('history')) renderHistory(); };
 $('closeHistory').onclick = () => togglePanel('history', null, false);
 $('propertiesBtn').onclick = () => togglePanel('properties', 'properties');
+$('chatBtn').onclick = () => { if (togglePanel('chat')) $('chatInput').focus(); };
+$('closeChat').onclick = () => togglePanel('chat', null, false);
+$('newChat').onclick = () => { if (!chat.busy) resetChat(); };
+$('chatForm').onsubmit = (e) => { e.preventDefault(); sendChat(); };
+$('chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
+});
+$('chatAttach').onclick = () => $('chatFileInput').click();
+$('chatFileInput').onchange = () => {
+  chat.files.push(...$('chatFileInput').files);
+  $('chatFileInput').value = '';
+  renderChatFiles();
+};
+resetChat();
 
 const menu = $('moreMenu');
 $('moreBtn').onclick = (e) => { e.stopPropagation(); menu.classList.toggle('show'); };

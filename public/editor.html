@@ -22,6 +22,7 @@
     <span class="spacer"></span>
     <input type="text" class="author-input" id="author" placeholder="Your name" title="Shown in history" autocomplete="off">
     <button id="copyLink" title="Copy a link to this project">Copy link</button>
+    <button id="chatBtn">Chat</button>
     <button id="historyBtn">History</button>
     <button id="propertiesBtn">Properties</button>
     <span class="menu-wrap">
@@ -45,6 +46,20 @@
   <div class="workspace">
     <div id="canvas"></div>
     <aside class="side-panel properties" id="properties"></aside>
+    <aside class="side-panel chat" id="chat">
+      <h2>Chat with Claude <span><button id="newChat" title="Start a new conversation">New chat</button> <button id="closeChat">Close</button></span></h2>
+      <ul class="chat-log" id="chatLog"></ul>
+      <form class="chat-form" id="chatForm">
+        <div class="chat-files" id="chatFiles"></div>
+        <textarea id="chatInput" rows="3" placeholder="Describe the change… (Enter to send, Shift+Enter for a new line)"></textarea>
+        <div class="chat-actions">
+          <button type="button" id="chatAttach" title="PDF, images, text, CSV, Markdown or .bpmn files">Attach files…</button>
+          <input type="file" id="chatFileInput" multiple hidden>
+          <span class="spacer"></span>
+          <button type="submit" class="primary" id="chatSend">Send</button>
+        </div>
+      </form>
+    </aside>
     <aside class="side-panel history" id="history">
       <h2>History <button id="closeHistory">Close</button></h2>
       <ul id="historyList"></ul>
