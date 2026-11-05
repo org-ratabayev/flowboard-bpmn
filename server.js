@@ -14,6 +14,11 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
+
+// Machine-specific settings (see .env.example). Loaded before the modules below read
+// process.env; variables already set in the environment take precedence.
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch { /* no .env: use defaults */ }
+
 const chatProvider = require('./providers/claude-code');
 const live = require('./live');
 

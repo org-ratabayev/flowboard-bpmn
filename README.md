@@ -13,6 +13,9 @@ BPMN_DIR=~/somewhere npm start # different storage folder
 
 Open http://localhost:3000. The startup log also prints your network address(es) for sharing on the LAN.
 
+For machine-specific settings (storage folder, port, chat options), copy `.env.example` to `.env` and edit it.
+`.env` is git-ignored; variables set in the environment override it.
+
 ## Storage
 
 Everything is plain files in the folder set by `BPMN_DIR` (default `~/workspace/bpmn-diagrams/`):
