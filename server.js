@@ -14,6 +14,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
+const chatProvider = require('./providers/claude-code');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -22,6 +23,23 @@ const DATA_DIR = path.resolve(
 );
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 20 * 1024 * 1024;
+const MAX_CHAT_BODY = 60 * 1024 * 1024; // attachments arrive base64-encoded
+const CHAT_ENABLED = process.env.CHAT !== 'off';
+const CHAT_DIR = path.join(os.tmpdir(), 'bpmn-chat');
+const CHAT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+const CHAT_SYSTEM_PROMPT = `You are a BPMN 2.0 modeling assistant embedded in a web-based bpmn.io editor.
+The diagram the user is editing is ./diagram.bpmn. It is rewritten from the editor's current (possibly unsaved) state before every message, so always read it fresh.
+Files the user attached are in ./attachments/.
+
+When the user asks for changes, edit ./diagram.bpmn in place:
+- Keep it valid BPMN 2.0 XML that bpmn-js can import.
+- Every element you add needs diagram interchange inside the existing bpmndi:BPMNPlane: a bpmndi:BPMNShape with dc:Bounds for flow nodes, pools, lanes and data objects, and a bpmndi:BPMNEdge with di:waypoint elements for flows. Typical sizes: task 100x80, event 36x36, gateway 50x50.
+- Lay out left to right without overlaps, keep elements inside their pool/lane and resize pools/lanes when needed.
+- Preserve existing IDs, names, colors and positions unless the request requires changing them.
+- Use readable unique IDs, e.g. Activity_ReviewOrder.
+If the user only asks a question, do not modify the file.
+Reply concisely in plain text: what you changed, or the answer. Never paste the XML into the reply.`;
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const VERSION_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/;
@@ -161,6 +179,69 @@ async function createProject(name, xml, author) {
   return id;
 }
 
+// ---------- chat ----------
+//
+// Each chat has a temp working directory (<tmp>/bpmn-chat/<chatId>/) holding diagram.bpmn,
+// attachments/ and session.json (the provider's session id, to continue the conversation).
+
+const busyChats = new Set();
+
+function safeFileName(name) {
+  const base = path.basename(String(name || 'file')).replace(/[^\w.\- ]+/g, '_').replace(/^\.+/, '').slice(0, 120);
+  return base || 'file';
+}
+
+async function saveAttachments(dir, attachments) {
+  await fsp.mkdir(dir, { recursive: true });
+  const saved = [];
+  for (const a of attachments) {
+    if (!a || typeof a.data !== 'string') continue;
+    let name = safeFileName(a.name);
+    const ext = path.extname(name);
+    for (let n = 2; await exists(path.join(dir, name)); n++) name = `${path.basename(name, ext)}-${n}${ext}`;
+    await fsp.writeFile(path.join(dir, name), Buffer.from(a.data, 'base64'));
+    saved.push(`attachments/${name}`);
+  }
+  return saved;
+}
+
+async function chat(projectId, body) {
+  const message = String(body.message || '').trim();
+  if (!message) throw Object.assign(new Error('Message is empty'), { status: 400 });
+  if (!looksLikeBpmn(body.xml)) throw Object.assign(new Error('Current diagram is missing'), { status: 400 });
+
+  const chatId = CHAT_ID_RE.test(body.chatId || '') ? body.chatId : crypto.randomUUID();
+  if (busyChats.has(chatId)) throw Object.assign(new Error('Claude is still working on the previous message'), { status: 409 });
+  busyChats.add(chatId);
+  try {
+    const dir = path.join(CHAT_DIR, chatId);
+    await fsp.mkdir(dir, { recursive: true });
+    const sessionFile = path.join(dir, 'session.json');
+    let session = {};
+    try { session = JSON.parse(await fsp.readFile(sessionFile, 'utf8')); } catch { /* new chat */ }
+    if (session.projectId && session.projectId !== projectId) throw Object.assign(new Error('Chat belongs to another project'), { status: 400 });
+
+    const diagramFile = path.join(dir, 'diagram.bpmn');
+    await fsp.writeFile(diagramFile, body.xml);
+    const attached = await saveAttachments(path.join(dir, 'attachments'), Array.isArray(body.attachments) ? body.attachments : []);
+
+    const prompt = attached.length ? `${message}\n\nNewly attached files:\n${attached.map((f) => `- ./${f}`).join('\n')}` : message;
+    const result = await chatProvider.run({ cwd: dir, prompt, systemPrompt: CHAT_SYSTEM_PROMPT, sessionId: session.sessionId || null });
+    await writeAtomic(sessionFile, JSON.stringify({ projectId, sessionId: result.sessionId }));
+
+    const after = await fsp.readFile(diagramFile, 'utf8');
+    let xml = null;
+    let reply = result.reply;
+    if (after !== body.xml) {
+      if (looksLikeBpmn(after)) xml = after;
+      else reply += '\n\n(The diagram file Claude produced is not valid BPMN, so it was not applied.)';
+    }
+    return { chatId, reply, xml, costUsd: result.costUsd, provider: chatProvider.name };
+  } finally {
+    busyChats.delete(chatId);
+  }
+}
+
 // ---------- http helpers ----------
 
 function send(res, status, body, headers = {}) {
@@ -173,13 +254,13 @@ function send(res, status, body, headers = {}) {
   res.end(isJson ? JSON.stringify(body) : body);
 }
 
-function readJson(req) {
+function readJson(req, maxBody = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY) { reject(Object.assign(new Error('Payload too large'), { status: 413 })); req.destroy(); return; }
+      if (size > maxBody) { reject(Object.assign(new Error('Payload too large'), { status: 413 })); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => {
@@ -250,6 +331,16 @@ async function handleApi(req, res, parts, url) {
       return send(res, 200, { id, name: meta.name });
     }
     return send(res, 405, { error: 'Method not allowed' });
+  }
+
+  if (sub === 'chat' && req.method === 'POST') {
+    if (!CHAT_ENABLED) return send(res, 403, { error: 'Chat is disabled on this server' });
+    const body = await readJson(req, MAX_CHAT_BODY);
+    try {
+      return send(res, 200, await chat(id, body));
+    } catch (err) {
+      return send(res, err.status || 502, { error: err.message });
+    }
   }
 
   if (sub === 'history' && req.method === 'GET') {
