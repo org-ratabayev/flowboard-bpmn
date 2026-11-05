@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BPMN Editor</title>
+  <link rel="stylesheet" href="/vendor/bpmn-js/assets/diagram-js.css">
+  <link rel="stylesheet" href="/vendor/bpmn-js/assets/bpmn-js.css">
+  <link rel="stylesheet" href="/vendor/bpmn-js/assets/bpmn-font/css/bpmn.css">
+  <link rel="stylesheet" href="/vendor/bpmn-js-color-picker/color-picker.css">
+  <link rel="stylesheet" href="/vendor/esm/css/properties-panel.css">
+  <link rel="stylesheet" href="/vendor/esm/css/bpmn-js-bpmnlint.css">
+  <link rel="stylesheet" href="/vendor/esm/css/bpmn-js-token-simulation.css">
+  <link rel="stylesheet" href="/vendor/esm/css/diagram-js-minimap.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="editor">
+  <div class="topbar">
+    <a href="/" class="brand">← Projects</a>
+    <input type="text" class="name-input" id="name" title="Rename project" autocomplete="off">
+    <span class="status" id="status"></span>
+    <span class="spacer"></span>
+    <input type="text" class="author-input" id="author" placeholder="Your name" title="Shown in history" autocomplete="off">
+    <button id="copyLink" title="Copy a link to this project">Copy link</button>
+    <button id="historyBtn">History</button>
+    <button id="propertiesBtn">Properties</button>
+    <span class="menu-wrap">
+      <button id="moreBtn">More ▾</button>
+      <div class="menu" id="moreMenu">
+        <button data-action="bpmn">Download .bpmn</button>
+        <button data-action="svg">Export as SVG</button>
+        <button data-action="png">Export as PNG</button>
+        <hr>
+        <button data-action="layout">Auto-layout diagram…</button>
+      </div>
+    </span>
+    <button class="primary" id="save" title="Save (Ctrl/Cmd+S)">Save</button>
+  </div>
+
+  <div class="banner" id="banner">
+    <span class="msg" id="bannerMsg"></span>
+    <span id="bannerActions"></span>
+  </div>
+
+  <div class="workspace">
+    <div id="canvas"></div>
+    <aside class="side-panel properties" id="properties"></aside>
+    <aside class="side-panel history" id="history">
+      <h2>History <button id="closeHistory">Close</button></h2>
+      <ul id="historyList"></ul>
+    </aside>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="/vendor/bpmn-js/bpmn-modeler.production.min.js"></script>
+  <script src="/vendor/bpmn-js-color-picker/color-picker.js"></script>
+  <script type="module" src="/js/editor.mjs"></script>
+</body>
+</html>
