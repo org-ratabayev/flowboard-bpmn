@@ -1,0 +1,9 @@
+{
+  "name": "claude-bpmn-io",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local bpmn.io editor with file-based projects and version history",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
