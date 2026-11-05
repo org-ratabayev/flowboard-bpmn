@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/UpdateAttachmentHandler */
+import{add as c,remove as h}from"../../../util/Collections.mjs";function o(t){this._modeling=t}o.$inject=["modeling"];o.prototype.execute=function(t){var e=t.shape,r=t.newHost,a=e.host;return t.oldHost=a,t.attacherIdx=n(a,e),s(r,e),e.host=r,e};o.prototype.revert=function(t){var e=t.shape,r=t.newHost,a=t.oldHost,d=t.attacherIdx;return e.host=a,n(r,e),s(a,e,d),e};function n(t,e){return h(t&&t.attachers,e)}function s(t,e,r){if(t){var a=t.attachers;a||(t.attachers=a=[]),c(a,e,r)}}export{o as default};
+//# sourceMappingURL=UpdateAttachmentHandler.mjs.map

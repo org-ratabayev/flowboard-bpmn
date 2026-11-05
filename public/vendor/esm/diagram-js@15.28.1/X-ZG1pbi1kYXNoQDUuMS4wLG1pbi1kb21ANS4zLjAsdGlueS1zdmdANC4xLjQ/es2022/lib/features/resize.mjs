@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/resize */
+import e from"./rules/index.mjs";import r from"./dragging/index.mjs";import i from"./preview-support/index.mjs";import o from"./resize/Resize.mjs";import s from"./resize/ResizePreview.mjs";import p from"./resize/ResizeHandles.mjs";var f={__depends__:[e,r,i],__init__:["resize","resizePreview","resizeHandles"],resize:["type",o],resizePreview:["type",s],resizeHandles:["type",p]};export{f as default};
+//# sourceMappingURL=resize.mjs.map

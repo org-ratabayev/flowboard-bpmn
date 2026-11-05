@@ -1,0 +1,3 @@
+/* esm.sh - @bpmn-io/feelers-lint@1.0.0 */
+import{linter as c}from"../../../../@codemirror/lint@6.9.3__784fb815.mjs";import{syntaxTree as l}from"../../../../@codemirror/language@6.12.1__784fb815.mjs";function s(t){let e=[];return t.iterate({enter:r=>{r.type.name==="EmptyInsert"&&e.push({from:r.from,to:r.to,severity:"warning",message:"this insert is empty and will be ignored",type:"emptyInsert"})}}),e}import{cmFeelLinter as p}from"../../../feel-lint@3.1.0__eb0737b4.mjs";function a(t){return[...s(t)]}function n(){let t=p();return e=>{let r=t(e);if(e.state.doc.length===0)return[];let i=l(e.state),o=a(i);return[...r,...o.map(m=>({...m,source:"feelers linter"}))]}}var F=c(n());export{F as feelersLinter};
+//# sourceMappingURL=feelers-lint.mjs.map

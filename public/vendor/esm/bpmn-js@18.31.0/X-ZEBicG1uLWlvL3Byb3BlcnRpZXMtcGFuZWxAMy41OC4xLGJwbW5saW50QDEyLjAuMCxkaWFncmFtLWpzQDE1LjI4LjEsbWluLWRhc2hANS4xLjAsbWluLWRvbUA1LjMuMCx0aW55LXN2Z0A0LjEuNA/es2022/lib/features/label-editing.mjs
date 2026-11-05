@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/label-editing */
+import i from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/change-support.mjs";import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/resize.mjs";import r from"../../../../../diagram-js-direct-editing@3.6.0__12cccf80.mjs";import t from"./label-editing/LabelEditingProvider.mjs";import o from"./label-editing/LabelEditingPreview.mjs";var a={__depends__:[i,e,r],__init__:["labelEditingProvider","labelEditingPreview"],labelEditingProvider:["type",t],labelEditingPreview:["type",o]};export{a as default};
+//# sourceMappingURL=label-editing.mjs.map

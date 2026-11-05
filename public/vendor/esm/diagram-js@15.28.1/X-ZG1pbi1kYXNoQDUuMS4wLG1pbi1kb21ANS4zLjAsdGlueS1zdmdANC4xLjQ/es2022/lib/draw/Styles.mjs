@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/draw/Styles */
+import{isArray as s,assign as o,reduce as l}from"../../../../../min-dash@5.1.0/es2022/min-dash.mjs";function i(){var u={"no-fill":{fill:"none"},"no-border":{strokeOpacity:0},"no-events":{pointerEvents:"none"}},t=this;this.cls=function(n,e,r){var f=this.style(e,r);return o(f,{class:n})},this.style=function(n,e){!s(n)&&!e&&(e=n,n=[]);var r=l(n,function(f,c){return o(f,u[c]||{})},{});return e?o(r,e):r},this.computeStyle=function(n,e,r){return s(e)||(r=e,e=[]),t.style(e||[],o({},r,n||{}))}}export{i as default};
+//# sourceMappingURL=Styles.mjs.map

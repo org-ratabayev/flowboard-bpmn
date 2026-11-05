@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/di-ordering/BpmnDiOrdering */
+import{getDi as i}from"../../util/ModelUtil.mjs";import{filter as c,forEach as p,map as u}from"../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";import{selfAndAllChildren as d}from"../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/util/Elements.mjs";var v=2e3;function o(a,l){a.on("saveXML.start",v,f);function f(){var m=l.getRootElements();p(m,function(t){var s=i(t),e,n;e=d([t],!1),e=c(e,function(r){return r!==t&&!r.labelTarget}),n=u(e,i),s.set("planeElement",n)})}}o.$inject=["eventBus","canvas"];export{o as default};
+//# sourceMappingURL=BpmnDiOrdering.mjs.map

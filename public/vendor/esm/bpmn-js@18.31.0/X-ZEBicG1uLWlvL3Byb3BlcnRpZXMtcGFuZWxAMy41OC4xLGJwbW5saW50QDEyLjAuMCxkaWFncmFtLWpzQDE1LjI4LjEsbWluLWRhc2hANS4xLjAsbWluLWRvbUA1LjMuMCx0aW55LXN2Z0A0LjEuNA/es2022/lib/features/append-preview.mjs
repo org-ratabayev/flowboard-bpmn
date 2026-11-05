@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/append-preview */
+import e from"./auto-place.mjs";import o from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/complex-preview.mjs";import p from"./modeling.mjs";import r from"./append-preview/AppendPreview.mjs";var _={__depends__:[e,o,p],__init__:["appendPreview"],appendPreview:["type",r]};export{_ as default};
+//# sourceMappingURL=append-preview.mjs.map

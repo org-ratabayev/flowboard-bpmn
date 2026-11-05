@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/selection */
+import e from"./interaction-events/index.mjs";import o from"./selection/Selection.mjs";import i from"./selection/SelectionVisuals.mjs";import t from"./selection/SelectionBehavior.mjs";var c={__init__:["selectionVisuals","selectionBehavior"],__depends__:[e],selection:["type",o],selectionVisuals:["type",i],selectionBehavior:["type",t]};export{c as default};
+//# sourceMappingURL=selection.mjs.map

@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/space-tool */
+import o from"./dragging/index.mjs";import e from"./rules/index.mjs";import r from"./tool-manager/index.mjs";import p from"./preview-support/index.mjs";import i from"./mouse/index.mjs";import m from"./space-tool/SpaceTool.mjs";import l from"./space-tool/SpaceToolPreview.mjs";var s={__init__:["spaceToolPreview"],__depends__:[o,e,r,p,i],spaceTool:["type",m],spaceToolPreview:["type",l]};export{s as default};
+//# sourceMappingURL=space-tool.mjs.map

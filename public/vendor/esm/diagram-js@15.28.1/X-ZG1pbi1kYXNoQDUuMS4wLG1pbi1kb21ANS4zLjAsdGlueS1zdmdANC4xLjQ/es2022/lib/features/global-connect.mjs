@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/global-connect */
+import o from"./connect/index.mjs";import e from"./rules/index.mjs";import r from"./dragging/index.mjs";import l from"./tool-manager/index.mjs";import m from"./mouse/index.mjs";import t from"./global-connect/GlobalConnect.mjs";var M={__depends__:[o,e,r,l,m],globalConnect:["type",t]};export{M as default};
+//# sourceMappingURL=global-connect.mjs.map

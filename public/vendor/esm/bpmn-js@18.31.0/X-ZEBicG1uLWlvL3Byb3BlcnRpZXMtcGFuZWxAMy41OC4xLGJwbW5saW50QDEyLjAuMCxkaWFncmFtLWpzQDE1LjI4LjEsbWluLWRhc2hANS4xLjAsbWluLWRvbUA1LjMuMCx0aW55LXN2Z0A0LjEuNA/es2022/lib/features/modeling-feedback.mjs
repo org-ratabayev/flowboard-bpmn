@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling-feedback */
+import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/tooltips.mjs";import o from"./modeling-feedback/ModelingFeedback.mjs";var _={__depends__:[e],__init__:["modelingFeedback"],modelingFeedback:["type",o]};export{_ as default};
+//# sourceMappingURL=modeling-feedback.mjs.map

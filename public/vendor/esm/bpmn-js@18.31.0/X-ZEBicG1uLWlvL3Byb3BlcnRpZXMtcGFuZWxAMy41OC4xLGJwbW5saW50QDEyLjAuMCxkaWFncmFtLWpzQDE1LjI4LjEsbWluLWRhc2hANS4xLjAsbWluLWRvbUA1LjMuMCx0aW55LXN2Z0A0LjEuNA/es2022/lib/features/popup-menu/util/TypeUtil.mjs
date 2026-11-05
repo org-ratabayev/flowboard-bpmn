@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/popup-menu/util/TypeUtil */
+import{getBusinessObject as p}from"../../../util/ModelUtil.mjs";import{isExpanded as f}from"../../../util/DiUtil.mjs";function u(n){return function(r){var e=r.target,i=p(n),t=i.eventDefinitions&&i.eventDefinitions[0],a=i.$type===e.type,s=(t&&t.$type)===e.eventDefinitionType,v=!!e.triggeredByEvent==!!i.triggeredByEvent,d=e.isExpanded===void 0||e.isExpanded===f(n);return!a||!s||!v||!d}}export{u as isDifferentType};
+//# sourceMappingURL=TypeUtil.mjs.map

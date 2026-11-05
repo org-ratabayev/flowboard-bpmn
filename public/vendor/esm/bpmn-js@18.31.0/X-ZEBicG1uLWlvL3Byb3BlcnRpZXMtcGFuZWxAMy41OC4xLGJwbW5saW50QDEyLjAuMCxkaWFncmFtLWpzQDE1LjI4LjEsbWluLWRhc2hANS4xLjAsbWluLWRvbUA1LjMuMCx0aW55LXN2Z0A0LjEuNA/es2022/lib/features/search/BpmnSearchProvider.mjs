@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/search/BpmnSearchProvider */
+import{getLabel as n,isLabel as a}from"../../util/LabelUtil.mjs";function i(r,s,t,e){this._elementRegistry=r,this._canvas=t,this._search=e,s.registerProvider(this)}i.$inject=["elementRegistry","searchPad","canvas","search"];i.prototype.find=function(r){var s=this._canvas.getRootElements(),t=this._elementRegistry.filter(function(e){return!a(e)&&!s.includes(e)});return this._search(t.map(e=>({element:e,label:n(e),id:e.id})),r,{keys:["label","id"]}).map(o)};function o(r){let{item:{element:s},tokens:t}=r;return{element:s,primaryTokens:t.label,secondaryTokens:t.id}}export{i as default};
+//# sourceMappingURL=BpmnSearchProvider.mjs.map

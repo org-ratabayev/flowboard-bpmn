@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/copy-paste */
+import o from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/copy-paste.mjs";import p from"./copy-paste/BpmnCopyPaste.mjs";import e from"./copy-paste/ModdleCopy.mjs";var y={__depends__:[o],__init__:["bpmnCopyPaste","moddleCopy"],bpmnCopyPaste:["type",p],moddleCopy:["type",e]};export{y as default};
+//# sourceMappingURL=copy-paste.mjs.map

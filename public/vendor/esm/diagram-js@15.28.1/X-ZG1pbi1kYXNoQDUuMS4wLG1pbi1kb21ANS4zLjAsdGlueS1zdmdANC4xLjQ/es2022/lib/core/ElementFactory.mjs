@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/core/ElementFactory */
+import{create as r}from"../model/index.mjs";import{assign as n}from"../../../../../min-dash@5.1.0/es2022/min-dash.mjs";function t(){this._uid=12}t.prototype.createRoot=function(e){return this.create("root",e)};t.prototype.createLabel=function(e){return this.create("label",e)};t.prototype.createShape=function(e){return this.create("shape",e)};t.prototype.createConnection=function(e){return this.create("connection",e)};t.prototype.create=function(e,o){return o=n({},o||{}),o.id||(o.id=e+"_"+this._uid++),r(e,o)};export{t as default};
+//# sourceMappingURL=ElementFactory.mjs.map

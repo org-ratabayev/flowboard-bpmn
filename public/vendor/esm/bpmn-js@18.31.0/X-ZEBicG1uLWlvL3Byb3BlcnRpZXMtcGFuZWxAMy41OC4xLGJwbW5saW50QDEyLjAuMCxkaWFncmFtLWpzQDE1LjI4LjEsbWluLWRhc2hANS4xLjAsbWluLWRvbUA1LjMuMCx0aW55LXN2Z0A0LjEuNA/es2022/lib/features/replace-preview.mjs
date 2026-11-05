@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/replace-preview */
+import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/preview-support.mjs";import p from"./replace-preview/BpmnReplacePreview.mjs";var _={__depends__:[e],__init__:["bpmnReplacePreview"],bpmnReplacePreview:["type",p]};export{_ as default};
+//# sourceMappingURL=replace-preview.mjs.map

@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/grid-snapping/behavior/SpaceToolBehavior */
+var l=2e3;function d(s,i){s.on(["spaceTool.move","spaceTool.end"],l,function(a){var x=a.context;if(x.initialized){var c=x.axis,o;c==="x"?(o=i.snapValue(a.dx),a.x=a.x+o-a.dx,a.dx=o):(o=i.snapValue(a.dy),a.y=a.y+o-a.dy,a.dy=o)}})}d.$inject=["eventBus","gridSnapping"];export{d as default};
+//# sourceMappingURL=SpaceToolBehavior.mjs.map

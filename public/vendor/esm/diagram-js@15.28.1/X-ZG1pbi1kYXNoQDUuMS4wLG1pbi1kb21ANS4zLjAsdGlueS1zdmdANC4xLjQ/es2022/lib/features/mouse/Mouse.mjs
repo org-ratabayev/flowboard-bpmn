@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/mouse/Mouse */
+function o(n){var e=this;this._lastMoveEvent=null;function t(s){e._lastMoveEvent=s}n.on("canvas.init",function(s){var v=e._svg=s.svg;v.addEventListener("mousemove",t)}),n.on("canvas.destroy",function(){e._lastMouseEvent=null,e._svg.removeEventListener("mousemove",t)})}o.$inject=["eventBus"];o.prototype.getLastMoveEvent=function(){return this._lastMoveEvent||i(0,0)};function i(n,e){var t=document.createEvent("MouseEvent"),s=n,v=e,u=n,a=e;return t.initMouseEvent&&t.initMouseEvent("mousemove",!0,!0,window,0,s,v,u,a,!1,!1,!1,!1,0,null),t}export{i as createMoveEvent,o as default};
+//# sourceMappingURL=Mouse.mjs.map

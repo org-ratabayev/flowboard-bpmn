@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1 */
+import{Injector as n}from"../../../didi@11.0.0__784fb815.mjs";import i from"./lib/core/index.mjs";function c(t){var e=new n(t);return e.init(),e}function u(t){t=t||{};var e={config:["value",t]},o=[e,i].concat(t.modules||[]);return c(o)}function r(t,e){this._injector=e||u(t),this.get("eventBus").fire("diagram.init")}r.prototype.get=function(t,e){return this._injector.get(t,e)};r.prototype.invoke=function(t,e,o){return this._injector.invoke(t,e,o)};r.prototype.destroy=function(){this.get("eventBus").fire("diagram.destroy")};r.prototype.clear=function(){this.get("eventBus").fire("diagram.clear")};export{r as default};
+//# sourceMappingURL=diagram-js.mjs.map

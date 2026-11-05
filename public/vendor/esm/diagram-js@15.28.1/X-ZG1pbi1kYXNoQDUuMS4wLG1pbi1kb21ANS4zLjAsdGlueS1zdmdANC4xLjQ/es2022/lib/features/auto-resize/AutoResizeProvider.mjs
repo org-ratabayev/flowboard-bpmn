@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/auto-resize/AutoResizeProvider */
+import n from"../rules/RuleProvider.mjs";import o from"../../../../../../inherits-browser@0.1.0__784fb815.mjs";function e(t){n.call(this,t);var r=this;this.addRule("element.autoResize",function(i){return r.canResize(i.elements,i.target)})}e.$inject=["eventBus"];o(e,n);e.prototype.canResize=function(t,r){return!1};export{e as default};
+//# sourceMappingURL=AutoResizeProvider.mjs.map

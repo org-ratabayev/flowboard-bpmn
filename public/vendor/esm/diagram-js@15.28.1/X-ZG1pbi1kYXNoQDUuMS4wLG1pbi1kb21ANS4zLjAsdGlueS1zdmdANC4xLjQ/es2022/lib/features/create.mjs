@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/create */
+import e from"./dragging/index.mjs";import r from"./preview-support/index.mjs";import o from"./rules/index.mjs";import t from"./selection/index.mjs";import i from"./create/Create.mjs";import m from"./create/CreatePreview.mjs";var u={__depends__:[e,r,o,t],__init__:["create","createPreview"],create:["type",i],createPreview:["type",m]};export{u as default};
+//# sourceMappingURL=create.mjs.map

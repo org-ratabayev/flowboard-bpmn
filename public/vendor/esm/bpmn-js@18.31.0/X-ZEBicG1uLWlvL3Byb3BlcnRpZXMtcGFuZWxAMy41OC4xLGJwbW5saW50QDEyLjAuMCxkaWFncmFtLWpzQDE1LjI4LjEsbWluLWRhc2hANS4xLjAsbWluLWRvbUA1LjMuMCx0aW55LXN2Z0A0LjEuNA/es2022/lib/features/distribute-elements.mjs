@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/distribute-elements */
+import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/distribute-elements.mjs";import t from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/popup-menu.mjs";import i from"./distribute-elements/BpmnDistributeElements.mjs";import r from"./distribute-elements/DistributeElementsMenuProvider.mjs";var u={__depends__:[t,e],__init__:["bpmnDistributeElements","distributeElementsMenuProvider"],bpmnDistributeElements:["type",i],distributeElementsMenuProvider:["type",r]};export{u as default};
+//# sourceMappingURL=distribute-elements.mjs.map

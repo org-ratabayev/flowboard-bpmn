@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/helper/MoveClosure */
+import{assign as n}from"../../../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";import{getClosure as i}from"../../../../util/Elements.mjs";function o(){this.allShapes={},this.allConnections={},this.enclosedElements={},this.enclosedConnections={},this.topLevel={}}o.prototype.add=function(t,e){return this.addAll([t],e)};o.prototype.addAll=function(t,e){var s=i(t,!!e,this);return n(this,s),this};export{o as default};
+//# sourceMappingURL=MoveClosure.mjs.map

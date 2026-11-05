@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/CreateLabelHandler */
+import i from"../../../../../../../inherits-browser@0.1.0__784fb815.mjs";import a from"./CreateShapeHandler.mjs";function t(e){a.call(this,e)}i(t,a);t.$inject=["canvas"];var n=a.prototype.execute;t.prototype.execute=function(e){var r=e.shape;return o(r),r.labelTarget=e.labelTarget,n.call(this,e)};var l=a.prototype.revert;t.prototype.revert=function(e){return e.shape.labelTarget=null,l.call(this,e)};function o(e){["width","height"].forEach(function(r){typeof e[r]>"u"&&(e[r]=0)})}export{t as default};
+//# sourceMappingURL=CreateLabelHandler.mjs.map

@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/ImportDockingFix */
+import{getMid as f}from"../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/layout/LayoutUtil.mjs";import s from"./util/LineIntersect.mjs";function g(a){function n(r,t,e){var y={x:e.x,y:e.y-50},v={x:e.x-50,y:e.y},o=s(r,t,e,y),i=s(r,t,e,v),c;o&&i?u(o,e)>u(i,e)?c=i:c=o:c=o||i,r.original=c}function p(r){var t=r.waypoints;n(t[0],t[1],f(r.source)),n(t[t.length-1],t[t.length-2],f(r.target))}a.on("bpmnElement.added",function(r){var t=r.element;t.waypoints&&p(t)})}g.$inject=["eventBus"];function u(a,n){return Math.sqrt(Math.pow(a.x-n.x,2)+Math.pow(a.y-n.y,2))}export{g as default};
+//# sourceMappingURL=ImportDockingFix.mjs.map

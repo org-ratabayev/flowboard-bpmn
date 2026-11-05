@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/util/LabelLayoutUtil */
+import{findNewLineStartIndex as o,getAnchorPointAdjustment as d}from"./LayoutUtil.mjs";import{getMid as a}from"../../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/layout/LayoutUtil.mjs";function u(t,e,n,r){return o(t,e,n,r)}function l(t,e,n,r){var i=a(t);return d(i,e,n,r).delta}export{u as findNewLabelLineStartIndex,l as getLabelAdjustment};
+//# sourceMappingURL=LabelLayoutUtil.mjs.map

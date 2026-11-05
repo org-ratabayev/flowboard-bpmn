@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/grid-snapping/behavior/GridSnappingParticipantBehavior */
+import{is as i}from"../../../util/ModelUtil.mjs";var p=1750;function r(o,s,e){s.on(["create.start","shape.move.start"],p,function(h){var n=h.context,t=n.shape,a=o.getRootElement();if(!(!i(t,"bpmn:Participant")||!i(a,"bpmn:Process")||!a.children.length)){var c=n.createConstraints;c&&(t.width=e.snapValue(t.width,{min:t.width}),t.height=e.snapValue(t.height,{min:t.height}))}})}r.$inject=["canvas","eventBus","gridSnapping"];export{r as default};
+//# sourceMappingURL=GridSnappingParticipantBehavior.mjs.map

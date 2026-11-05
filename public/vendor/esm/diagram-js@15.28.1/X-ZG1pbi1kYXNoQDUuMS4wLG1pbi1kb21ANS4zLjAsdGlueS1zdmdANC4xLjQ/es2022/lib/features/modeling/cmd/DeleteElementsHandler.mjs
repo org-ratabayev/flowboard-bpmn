@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/DeleteElementsHandler */
+import{forEach as s}from"../../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";function n(i,e){this._modeling=i,this._elementRegistry=e}n.$inject=["modeling","elementRegistry"];n.prototype.postExecute=function(i){var e=this._modeling,o=this._elementRegistry,r=i.elements;s(r,function(t){o.get(t.id)&&(t.waypoints?e.removeConnection(t):e.removeShape(t))})};export{n as default};
+//# sourceMappingURL=DeleteElementsHandler.mjs.map

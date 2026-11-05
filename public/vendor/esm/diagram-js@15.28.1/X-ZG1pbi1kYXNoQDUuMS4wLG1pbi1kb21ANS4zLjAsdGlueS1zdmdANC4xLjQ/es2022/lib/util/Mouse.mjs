@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/util/Mouse */
+import{getOriginal as i}from"./Event.mjs";import{isMac as e}from"./Platform.mjs";import{isMac as x}from"./Platform.mjs";function n(r,t){return(i(r)||r).button===t}function o(r){return n(r,0)}function f(r){return n(r,1)}function s(r){return n(r,2)}function c(r){var t=i(r)||r;return o(r)?e()?t.metaKey:t.ctrlKey:!1}function p(r){var t=i(r)||r;return o(r)&&t.shiftKey}export{c as hasPrimaryModifier,p as hasSecondaryModifier,f as isAuxiliaryButton,n as isButton,x as isMac,o as isPrimaryButton,s as isSecondaryButton};
+//# sourceMappingURL=Mouse.mjs.map

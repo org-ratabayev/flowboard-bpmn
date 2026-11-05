@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/CreateBehavior */
+import m from"../../../../../../../inherits-browser@0.1.0__784fb815.mjs";import{is as n}from"../../../util/ModelUtil.mjs";import i from"../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/command/CommandInterceptor.mjs";import{getParent as c}from"../util/ModelingUtil.mjs";function e(o){o.invoke(i,this),this.preExecute("shape.create",1500,function(a){var t=a.context,r=t.parent,p=t.shape;n(r,"bpmn:Lane")&&!n(p,"bpmn:Lane")&&(t.parent=c(r,"bpmn:Participant"))})}e.$inject=["injector"];m(e,i);export{e as default};
+//# sourceMappingURL=CreateBehavior.mjs.map

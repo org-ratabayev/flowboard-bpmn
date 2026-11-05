@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/grid-snapping/behavior */
+import i from"./behavior/GridSnappingAutoPlaceBehavior.mjs";import a from"./behavior/GridSnappingParticipantBehavior.mjs";import n from"./behavior/GridSnappingLayoutConnectionBehavior.mjs";var t={__init__:["gridSnappingAutoPlaceBehavior","gridSnappingParticipantBehavior","gridSnappingLayoutConnectionBehavior"],gridSnappingAutoPlaceBehavior:["type",i],gridSnappingParticipantBehavior:["type",a],gridSnappingLayoutConnectionBehavior:["type",n]};export{t as default};
+//# sourceMappingURL=behavior.mjs.map

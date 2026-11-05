@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/CreateShapeHandler */
+import{assign as i}from"../../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";var o=Math.round;function n(r){this._canvas=r}n.$inject=["canvas"];n.prototype.execute=function(r){var e=r.shape,a=r.position,t=r.parent,p=r.parentIndex;if(!t)throw new Error("parent required");if(!a)throw new Error("position required");return a.width!==void 0?i(e,a):i(e,{x:a.x-o(e.width/2),y:a.y-o(e.height/2)}),this._canvas.addShape(e,t,p),e};n.prototype.revert=function(r){var e=r.shape;return this._canvas.removeShape(e),e};export{n as default};
+//# sourceMappingURL=CreateShapeHandler.mjs.map

@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/util/ModelUtil */
+import{some as i}from"../../../../../min-dash@5.1.0/es2022/min-dash.mjs";function o(n,r){var t=u(n);return t&&typeof t.$instanceOf=="function"&&t.$instanceOf(r)}function c(n,r){return i(r,function(t){return o(n,t)})}function u(n){return n&&n.businessObject||n}function e(n){return n&&n.di}export{u as getBusinessObject,e as getDi,o as is,c as isAny};
+//# sourceMappingURL=ModelUtil.mjs.map

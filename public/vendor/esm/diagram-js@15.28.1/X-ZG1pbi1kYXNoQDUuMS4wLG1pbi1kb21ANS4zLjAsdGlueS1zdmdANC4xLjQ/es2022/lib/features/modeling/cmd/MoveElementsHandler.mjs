@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/MoveElementsHandler */
+import t from"./helper/MoveHelper.mjs";function p(e){this._helper=new t(e)}p.$inject=["modeling"];p.prototype.preExecute=function(e){e.closure=this._helper.getClosure(e.shapes)};p.prototype.postExecute=function(e){var r=e.hints,o;r&&r.primaryShape&&(o=r.primaryShape,r.oldParent=o.parent),this._helper.moveClosure(e.closure,e.delta,e.newParent,e.newHost,o)};export{p as default};
+//# sourceMappingURL=MoveElementsHandler.mjs.map

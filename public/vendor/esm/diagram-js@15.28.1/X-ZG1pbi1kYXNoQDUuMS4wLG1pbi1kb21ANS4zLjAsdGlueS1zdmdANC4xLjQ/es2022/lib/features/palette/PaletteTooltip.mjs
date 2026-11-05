@@ -1,0 +1,6 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/palette/PaletteTooltip */
+import{attr as r}from"../../../../../../min-dom@5.3.0/X-ZG1pbi1kYXNoQDUuMS4w/es2022/min-dom.mjs";import{html as s}from"../../ui/index.mjs";import p from"./PaletteTooltipComponent.mjs";var l=".djs-palette-entries .entry",a=8;function o(i,e,t){this._palette=e,this._hoverTooltip=t,this._entries={},i.on("palette.create",n=>this._init(n.container)),i.on("palette.changed",()=>this._updateEntries())}o.$inject=["eventBus","palette","hoverTooltip"];o.prototype._init=function(i){this._updateEntries(),this._hoverTooltip.add({container:i,selector:l,getContent:e=>{let t=this._entries[r(e,"data-action")];return!t||!t.title?null:s`<${p}
+        title=${t.title}
+        shortcut=${t.shortcut}
+      />`},getPosition:e=>{let t=e.getBoundingClientRect();return{x:t.right+a,y:t.top+t.height/2,placement:"right"}}})};o.prototype._updateEntries=function(){this._entries=this._palette.getEntries()};export{o as default};
+//# sourceMappingURL=PaletteTooltip.mjs.map

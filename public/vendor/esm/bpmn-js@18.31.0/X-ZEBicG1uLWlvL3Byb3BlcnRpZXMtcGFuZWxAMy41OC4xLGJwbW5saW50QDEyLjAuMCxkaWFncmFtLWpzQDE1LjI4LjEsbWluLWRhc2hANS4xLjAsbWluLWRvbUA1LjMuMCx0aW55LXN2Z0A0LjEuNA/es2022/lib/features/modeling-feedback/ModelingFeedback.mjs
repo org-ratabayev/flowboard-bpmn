@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling-feedback/ModelingFeedback */
+import{is as a}from"../../util/ModelUtil.mjs";var s="flow elements must be children of pools/participants",d="Data object must be placed within a pool/participant.";function n(c,p,i){function r(e,t,o){p.add({position:{x:e.x+5,y:e.y+5},type:"error",timeout:o||2e3,html:"<div>"+t+"</div>"})}c.on(["shape.move.rejected","create.rejected"],function(e){var t=e.context,o=t.shape,l=t.target;a(l,"bpmn:Collaboration")&&(a(o,"bpmn:FlowNode")?r(e,i(s)):a(o,"bpmn:DataObjectReference")&&r(e,i(d)))})}n.$inject=["eventBus","tooltips","translate"];export{n as default};
+//# sourceMappingURL=ModelingFeedback.mjs.map

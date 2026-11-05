@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/move */
+import e from"./interaction-events/index.mjs";import o from"./selection/index.mjs";import r from"./outline/index.mjs";import m from"./rules/index.mjs";import t from"./dragging/index.mjs";import i from"./preview-support/index.mjs";import p from"./move/Move.mjs";import v from"./move/MovePreview.mjs";var P={__depends__:[e,o,r,m,t,i],__init__:["move","movePreview"],move:["type",p],movePreview:["type",v]};export{P as default};
+//# sourceMappingURL=move.mjs.map

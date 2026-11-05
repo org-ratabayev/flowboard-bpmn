@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/util/Collections */
+function p(r,f){if(!r||!f)return-1;var u=r.indexOf(f);return u!==-1&&r.splice(u,1),u}function n(r,f,u){if(!(!r||!f)){typeof u!="number"&&(u=-1);var i=r.indexOf(f);if(i!==-1){if(i===u)return;if(u!==-1)r.splice(i,1);else return}u!==-1?r.splice(u,0,f):r.push(f)}}function s(r,f){return!r||!f?-1:r.indexOf(f)}export{n as add,s as indexOf,p as remove};
+//# sourceMappingURL=Collections.mjs.map

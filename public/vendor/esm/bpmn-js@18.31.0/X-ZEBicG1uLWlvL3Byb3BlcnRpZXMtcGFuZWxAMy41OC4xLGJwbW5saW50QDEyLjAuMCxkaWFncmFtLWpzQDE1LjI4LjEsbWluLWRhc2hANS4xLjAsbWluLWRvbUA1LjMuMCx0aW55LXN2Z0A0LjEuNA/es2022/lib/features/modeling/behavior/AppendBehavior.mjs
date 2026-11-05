@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/AppendBehavior */
+import h from"../../../../../../../inherits-browser@0.1.0__784fb815.mjs";import{is as n}from"../../../util/ModelUtil.mjs";import p from"../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/command/CommandInterceptor.mjs";function o(r){p.call(this,r),this.preExecute("shape.append",function(e){var i=e.source,t=e.shape;e.position||(n(t,"bpmn:TextAnnotation")?e.position={x:i.x+i.width/2+75,y:i.y-50-t.height/2}:e.position={x:i.x+i.width+80+t.width/2,y:i.y+i.height/2})},!0)}h(o,p);o.$inject=["eventBus"];export{o as default};
+//# sourceMappingURL=AppendBehavior.mjs.map

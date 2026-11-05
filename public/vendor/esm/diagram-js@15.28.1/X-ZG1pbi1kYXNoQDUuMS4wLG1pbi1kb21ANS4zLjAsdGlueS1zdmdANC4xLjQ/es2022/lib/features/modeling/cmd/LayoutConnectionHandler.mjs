@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/LayoutConnectionHandler */
+import{assign as a}from"../../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";function t(o,n){this._layouter=o,this._canvas=n}t.$inject=["layouter","canvas"];t.prototype.execute=function(o){var n=o.connection,i=n.waypoints;return a(o,{oldWaypoints:i}),n.waypoints=this._layouter.layoutConnection(n,o.hints),n};t.prototype.revert=function(o){var n=o.connection;return n.waypoints=o.oldWaypoints,n};export{t as default};
+//# sourceMappingURL=LayoutConnectionHandler.mjs.map

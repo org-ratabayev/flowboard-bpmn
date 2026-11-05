@@ -1,0 +1,3 @@
+/* esm.sh - diagram-js@15.28.1/lib/features/selection/SelectionVisuals */
+var a="hover",d="selected";function u(t,c){this._canvas=t;function i(e,o){t.addMarker(e,o)}function l(e,o){t.removeMarker(e,o)}c.on("element.hover",function(e){i(e.element,a)}),c.on("element.out",function(e){l(e.element,a)}),c.on("selection.changed",function(e){function o(n){l(n,d)}function s(n){i(n,d)}var r=new Set(e.oldSelection),f=new Set(e.newSelection);for(let n of r)f.has(n)||o(n);for(let n of f)r.has(n)||s(n)})}u.$inject=["canvas","eventBus"];export{u as default};
+//# sourceMappingURL=SelectionVisuals.mjs.map

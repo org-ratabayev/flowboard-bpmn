@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/auto-resize/BpmnAutoResize */
+import n from"../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/auto-resize/AutoResize.mjs";import r from"../../../../../../inherits-browser@0.1.0__784fb815.mjs";import{is as m}from"../../util/ModelUtil.mjs";function e(i){i.invoke(n,this)}e.$inject=["injector"];r(e,n);e.prototype.resize=function(i,o,t){m(i,"bpmn:Participant")?this._modeling.resizeLane(i,o,null,t):this._modeling.resizeShape(i,o,null,t)};export{e as default};
+//# sourceMappingURL=BpmnAutoResize.mjs.map

@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/snapping */
+import n from"./snapping/BpmnConnectSnapping.mjs";import p from"./snapping/BpmnCreateMoveSnapping.mjs";import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/snapping.mjs";var a={__depends__:[e],__init__:["connectSnapping","createMoveSnapping"],connectSnapping:["type",n],createMoveSnapping:["type",p]};export{a as default};
+//# sourceMappingURL=snapping.mjs.map

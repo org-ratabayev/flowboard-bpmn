@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/cmd/SplitLaneHandler */
+import{getChildLanes as f,LANE_INDENTATION as o}from"../util/LaneUtil.mjs";import{isHorizontal as u}from"../../../util/DiUtil.mjs";function s(t){this._modeling=t}s.$inject=["modeling"];s.prototype.preExecute=function(t){var d=this._modeling,e=t.shape,n=t.count,p=f(e),g=p.length;if(g>n)throw new Error(`more than <${n}> child lanes`);var h=u(e),m=h?e.height:e.width,a=Math.round(m/n),r,l,L,i;for(i=0;i<n;i++)i===n-1?r=m-a*i:r=a,l=h?{x:e.x+o,y:e.y+i*a,width:e.width-o,height:r}:{x:e.x+i*a,y:e.y+o,width:r,height:e.height-o},i<g?d.resizeShape(p[i],l):(L={type:"bpmn:Lane",isHorizontal:h},d.createShape(L,l,e))};export{s as default};
+//# sourceMappingURL=SplitLaneHandler.mjs.map

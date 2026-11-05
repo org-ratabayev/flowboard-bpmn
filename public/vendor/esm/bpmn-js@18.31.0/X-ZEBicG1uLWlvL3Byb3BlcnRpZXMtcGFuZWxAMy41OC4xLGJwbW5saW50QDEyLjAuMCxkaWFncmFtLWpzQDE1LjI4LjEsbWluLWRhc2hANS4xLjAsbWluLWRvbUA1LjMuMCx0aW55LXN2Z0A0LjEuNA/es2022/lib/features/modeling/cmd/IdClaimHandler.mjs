@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/cmd/IdClaimHandler */
+function d(i){this._moddle=i}d.$inject=["moddle"];d.prototype.execute=function(i){var e=this._moddle.ids,l=i.id,m=i.element,n=i.claiming;return n?e.claim(l,m):e.unclaim(l),[]};d.prototype.revert=function(i){var e=this._moddle.ids,l=i.id,m=i.element,n=i.claiming;return n?e.unclaim(l):e.claim(l,m),[]};export{d as default};
+//# sourceMappingURL=IdClaimHandler.mjs.map

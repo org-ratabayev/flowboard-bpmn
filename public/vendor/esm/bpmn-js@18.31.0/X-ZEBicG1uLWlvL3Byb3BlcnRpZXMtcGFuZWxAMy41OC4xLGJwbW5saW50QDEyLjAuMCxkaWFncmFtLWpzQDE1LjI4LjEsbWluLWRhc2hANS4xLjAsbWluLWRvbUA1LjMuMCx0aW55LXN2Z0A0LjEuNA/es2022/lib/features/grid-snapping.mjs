@@ -1,0 +1,3 @@
+/* esm.sh - bpmn-js@18.31.0/lib/features/grid-snapping */
+import p from"./grid-snapping/BpmnGridSnapping.mjs";import i from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/grid-snapping.mjs";import n from"./grid-snapping/behavior.mjs";var m={__depends__:[i,n],__init__:["bpmnGridSnapping"],bpmnGridSnapping:["type",p]};export{m as default};
+//# sourceMappingURL=grid-snapping.mjs.map
