@@ -15,6 +15,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const chatProvider = require('./providers/claude-code');
+const live = require('./live');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -311,7 +312,16 @@ async function handleApi(req, res, parts, url) {
   if (!sub) {
     if (req.method === 'GET') {
       const [meta, xml, version] = await Promise.all([readMeta(id), fsp.readFile(latestFile(id), 'utf8'), currentVersion(id)]);
-      return send(res, 200, { id, name: meta.name || id, version, xml });
+      // unsaved changes shared by people currently editing take precedence over the saved file
+      const shared = live.liveDoc(id);
+      return send(res, 200, {
+        id,
+        name: meta.name || id,
+        version,
+        xml: shared ? shared.xml : xml,
+        rev: shared ? shared.rev : 0,
+        dirty: shared ? shared.dirty : false
+      });
     }
     if (req.method === 'PUT') {
       const body = await readJson(req);
@@ -321,7 +331,9 @@ async function handleApi(req, res, parts, url) {
         const versions = await listVersions(id);
         return send(res, 409, { error: 'conflict', latest: versions[0] || null });
       }
-      return send(res, 200, await saveVersion(id, body.xml, { author: body.author, note: body.note }));
+      const saved = await saveVersion(id, body.xml, { author: body.author, note: body.note });
+      const rev = live.onSaved(id, { xml: body.xml, version: saved.version, author: body.author, clientId: body.client });
+      return send(res, 200, { ...saved, rev });
     }
     if (req.method === 'PATCH') {
       const body = await readJson(req);
@@ -329,6 +341,15 @@ async function handleApi(req, res, parts, url) {
       if (body.name) meta.name = String(body.name).trim().slice(0, 200);
       await writeAtomic(path.join(projectDir(id), 'project.json'), JSON.stringify(meta, null, 2));
       return send(res, 200, { id, name: meta.name });
+    }
+    return send(res, 405, { error: 'Method not allowed' });
+  }
+
+  if (sub === 'live') {
+    if (req.method === 'GET') return live.handleStream(req, res, id, url);
+    if (req.method === 'POST') {
+      const result = live.handlePost(id, await readJson(req), looksLikeBpmn);
+      return send(res, result.status, result.body);
     }
     return send(res, 405, { error: 'Method not allowed' });
   }
