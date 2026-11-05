@@ -35,8 +35,15 @@ If the server is down, open these files directly with any BPMN tool. Back them u
 - Save with the button or Ctrl/Cmd+S. Each save is a new history entry.
 - History panel lets you view any version, download it, or restore it (restoring adds a new version; nothing is ever overwritten).
 - "Your name" field is recorded with each save.
-- Concurrent editing: if someone saved after you loaded, you get a choice to load theirs or save yours on top. Both stay in history.
-  Open editors pick up other people's saves automatically (every 10s) when they have no unsaved changes.
+- **Live collaboration** (like Miro): everyone on the same project sees each other's cursors with names, what they
+  selected (colored outline), and every change within about a quarter second. Avatars in the top bar show who is on the
+  board (green dot = editing, faded = away, dashed = viewing an old version); click one to jump to that person.
+  Unsaved changes are shared: anyone who opens the link sees them, and anyone's Save marks the board saved for all.
+  Limits: changes are shared as whole diagrams, so if two people change something at the same moment the later one
+  wins; receiving someone's change clears your undo history; others see a drag once it is dropped. Shared unsaved
+  changes live in server memory, so save before restarting the server.
+- If someone saved while you were offline or editing an old version, Save offers to load theirs or save yours on top.
+  Both stay in history.
 - **What changed**: in History, "what changed" highlights elements added (green), changed (orange) and moved (blue)
   compared to the previous version, and lists removed elements (bpmn-js-differ).
 - **Properties panel** (right side, toggle with "Properties"): edit IDs, names, documentation, etc.
