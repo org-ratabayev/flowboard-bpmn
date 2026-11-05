@@ -47,6 +47,32 @@ If the server is down, open these files directly with any BPMN tool. Back them u
 - **More ▾** menu: download `.bpmn`, export SVG / PNG, auto-layout the diagram.
   Files without diagram layout (pure process XML) get a layout generated automatically when opened.
 
+## Chat with Claude
+
+The **Chat** button opens a panel where you can ask Claude to change the diagram and attach files
+(PDF, images, text, CSV, Markdown, `.bpmn`) for context. Word/Excel files are not readable yet; export them as PDF.
+
+- Under the hood the server runs your local Claude Code CLI (`claude -p`) in a temp folder per conversation
+  (`$TMPDIR/bpmn-chat/<chat-id>/`) holding `diagram.bpmn` (the editor's current state) and `attachments/`.
+  Follow-up messages continue the same Claude session.
+- Claude's modified diagram is applied as an **unsaved** change with an "undo" link; saving records
+  `AI: <your request>` in the history.
+- It uses your Claude account, and each message costs money (shown under each reply, typically $0.05–0.20).
+
+**Safety:** anyone with the link can use the chat, so the CLI runs locked down: only the Read/Edit/Write/Glob/Grep
+tools, confined to the chat folder (`--restricted`); no shell, web access, MCP servers/connectors
+(`--strict-mcp-config`), user hooks or settings; anything needing a permission prompt is denied.
+
+| Env var | Default | |
+|---|---|---|
+| `CHAT` | on | `CHAT=off` disables the chat endpoint |
+| `CLAUDE_BIN` | `claude` | path to the Claude Code CLI |
+| `CLAUDE_MODEL` | CLI default | e.g. `sonnet`, `opus` |
+| `CHAT_TIMEOUT_MS` | 300000 | per-message timeout |
+
+The provider lives in `providers/claude-code.js` (`run({ cwd, prompt, systemPrompt, sessionId })`), so other LLM
+providers can be added next to it later.
+
 ## Plugins and upgrading
 
 | Plugin | Version | Location |
