@@ -5,6 +5,7 @@ import MinimapModule from '../vendor/esm/entries/minimap.mjs';
 import { diff } from '../vendor/esm/entries/differ.mjs';
 import { layoutProcess } from '../vendor/esm/entries/auto-layout.mjs';
 import lintConfig from './lint-config.mjs';
+import { createLive } from './live.mjs';
 
 const id = decodeURIComponent(location.pathname.split('/')[2]);
 const api = `/api/projects/${encodeURIComponent(id)}`;
@@ -43,8 +44,11 @@ const state = {
   saving: false,
   versions: [],
   pendingNote: null,  // history note for the next save, e.g. after applying a chat change
-  edits: 0            // counts canvas edits, to detect edits made while a chat request runs
+  edits: 0,           // counts canvas edits, to detect edits made while a chat request runs
+  publishPending: false // a local change is waiting to be shared with other participants
 };
+
+let live = null;      // live collaboration client, connected after the first load
 
 // ---------- helpers ----------
 
@@ -139,7 +143,95 @@ modeler.on('commandStack.changed', () => {
   state.edits++;
   state.dirty = true;
   updateStatus();
+  schedulePublish();
 });
+
+// ---------- live collaboration ----------
+
+const PUBLISH_DELAY_MS = 250;
+let publishTimer = null;
+let queuedRemote = null;
+const interaction = { dragging: false, directEditing: false };
+
+// Shares the current diagram with other participants shortly after a local change.
+function schedulePublish() {
+  if (!live || state.viewing) return;
+  state.publishPending = true;
+  clearTimeout(publishTimer);
+  publishTimer = setTimeout(publishNow, PUBLISH_DELAY_MS);
+}
+
+async function publishNow() {
+  clearTimeout(publishTimer);
+  if (!live || state.viewing) { state.publishPending = false; return; }
+  const { xml } = await modeler.saveXML({ format: true });
+  state.publishPending = false;
+  queuedRemote = null; // our newer version replaces anything received meanwhile
+  await live.publishDoc(xml);
+}
+
+function isInteracting() {
+  return interaction.dragging || interaction.directEditing || $('properties').contains(document.activeElement);
+}
+
+// Applies a diagram produced by another participant, keeping our viewport and selection.
+async function applyRemote(update) {
+  if (state.viewing || state.publishPending) return; // "Back to latest" fetches it; or our pending edit wins
+  if (isInteracting()) { queuedRemote = update; return; }
+  queuedRemote = null;
+  const canvas = modeler.get('canvas');
+  const viewbox = canvas.viewbox();
+  const selected = modeler.get('selection').get().map((el) => el.id);
+  await importXml(update.xml);
+  canvas.viewbox(viewbox);
+  const registry = modeler.get('elementRegistry');
+  modeler.get('selection').select(selected.map((sid) => registry.get(sid)).filter(Boolean));
+  state.dirty = update.dirty;
+  updateStatus();
+}
+
+function applyQueuedRemote() {
+  if (queuedRemote && !isInteracting()) applyRemote(queuedRemote);
+}
+
+modeler.on('drag.start', () => { interaction.dragging = true; });
+modeler.on('drag.cleanup', () => { interaction.dragging = false; setTimeout(applyQueuedRemote, 0); });
+modeler.on('directEditing.activate', () => { interaction.directEditing = true; });
+for (const event of ['directEditing.deactivate', 'directEditing.complete', 'directEditing.cancel']) {
+  modeler.on(event, () => { interaction.directEditing = false; setTimeout(applyQueuedRemote, 0); });
+}
+$('properties').addEventListener('focusout', () => setTimeout(applyQueuedRemote, 0));
+
+function startLive() {
+  live = createLive({
+    api,
+    modeler,
+    avatarsEl: $('participants'),
+    getName: author,
+    onHello: async (hello, previousRev) => {
+      if (state.viewing) return;
+      if (hello.xml && hello.rev !== previousRev) {
+        await applyRemote({ xml: hello.xml, rev: hello.rev, dirty: hello.rev !== hello.savedRev });
+      } else if (!hello.xml && hello.rev === 0 && state.dirty) {
+        publishNow(); // the server restarted and lost the shared draft: share ours again
+      }
+    },
+    onDoc: (update) => applyRemote(update),
+    onSaved: async (saved) => {
+      state.baseVersion = saved.version;
+      if (saved.by === live.me.id) return; // our own save, handled in save()
+      if (!state.viewing && !state.publishPending) {
+        const { xml } = await modeler.saveXML({ format: true });
+        if (xml !== saved.xml) await applyRemote({ xml: saved.xml, rev: saved.rev, dirty: false });
+        state.dirty = false;
+        state.pendingNote = null;
+      }
+      updateStatus();
+      toast(`Saved by ${saved.author || 'someone'}`);
+      if ($('history').classList.contains('show')) renderHistory();
+    }
+  });
+}
 
 // ---------- load / save ----------
 
@@ -158,8 +250,12 @@ async function loadLatest({ fit = true } = {}) {
   else modeler.get('canvas').viewbox(viewbox);
   state.baseVersion = p.version;
   state.viewing = null;
-  state.dirty = generated;
+  state.dirty = generated || p.dirty;
   state.pendingNote = null;
+  if (live) {
+    live.rev = p.rev;
+    live.setViewing(null);
+  }
   hideBanner();
   updateStatus();
   if (generated) toast('This file had no diagram layout. One was generated: save to keep it.');
@@ -174,10 +270,13 @@ async function save({ force = false } = {}) {
   try {
     const { xml } = await modeler.saveXML({ format: true });
     const note = state.viewing ? `Restored version from ${fmt(versionDate(state.viewing))}` : state.pendingNote;
+    // the save itself shares this diagram with everyone, so a pending share is no longer needed
+    clearTimeout(publishTimer);
+    state.publishPending = false;
     const res = await fetch(api, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ xml, baseVersion: state.baseVersion, author: author(), note, force })
+      body: JSON.stringify({ xml, baseVersion: state.baseVersion, author: author(), note, force, client: live?.me.id })
     });
     const body = await res.json();
     if (res.status === 409) {
@@ -194,6 +293,10 @@ async function save({ force = false } = {}) {
     }
     if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
     state.baseVersion = body.version;
+    if (live) {
+      live.rev = body.rev;
+      if (state.viewing) live.setViewing(null);
+    }
     state.viewing = null;
     state.dirty = false;
     state.pendingNote = null;
@@ -249,9 +352,12 @@ async function viewVersion(version, { confirmDiscard = true } = {}) {
   }
   let xml;
   try { xml = await fetchVersionXml(version); } catch (e) { toast(e.message); return false; }
+  clearTimeout(publishTimer);
+  state.publishPending = false;
   await importXml(xml);
   state.viewing = version;
   state.dirty = false;
+  live?.setViewing(version);
   showBanner(
     `Viewing version from <b>${esc(fmt(versionDate(version)))}</b>. Click “Restore this version” to save it as the newest version.`,
     [['Back to latest', () => loadLatest({ fit: false })]]
@@ -361,11 +467,13 @@ async function autoLayout() {
     modeler.get('canvas').zoom('fit-viewport', 'auto');
     state.dirty = true;
     updateStatus();
+    schedulePublish();
     showBanner('Diagram was re-arranged automatically. Save to keep it.', [
       ['Undo auto-layout', async () => {
         await importXml(before);
         modeler.get('canvas').viewbox(viewbox);
         hideBanner();
+        schedulePublish();
       }]
     ]);
   } catch (e) {
@@ -448,6 +556,7 @@ async function sendChat() {
   $('chatSend').disabled = true;
   const { xml: sentXml } = await modeler.saveXML({ format: true });
   const editsAtSend = state.edits;
+  const revAtSend = live?.rev;
   try {
     const attachments = await Promise.all(files.map(async (f) => ({ name: f.name, data: await fileToBase64(f) })));
     const res = await fetch(`${api}/chat`, {
@@ -466,8 +575,9 @@ async function sendChat() {
       addChatMeta(reply, `Diagram unchanged${cost}`);
       return;
     }
-    if (state.edits !== editsAtSend &&
-        !confirm('You edited the diagram while Claude was working. Apply Claude\'s version anyway? Your edits since sending will be replaced.')) {
+    const changedMeanwhile = state.edits !== editsAtSend || (live && live.rev !== revAtSend);
+    if (changedMeanwhile &&
+        !confirm('The diagram was edited (by you or others) while Claude was working. Apply Claude\'s version anyway? Edits made since sending will be replaced.')) {
       addChatMeta(reply, `Change not applied${cost}`);
       return;
     }
@@ -483,6 +593,7 @@ async function sendChat() {
     state.dirty = true;
     state.pendingNote = `AI: ${message.length > 100 ? message.slice(0, 100) + '…' : message}`;
     updateStatus();
+    schedulePublish();
     const meta = addChatMeta(reply, `Applied to the diagram, not saved yet${cost} · `);
     const undo = document.createElement('a');
     undo.href = '#';
@@ -494,6 +605,7 @@ async function sendChat() {
       state.pendingNote = null;
       state.dirty = true;
       updateStatus();
+      schedulePublish();
       meta.textContent = `Change undone${cost}`;
     };
     meta.appendChild(undo);
@@ -506,35 +618,13 @@ async function sendChat() {
   }
 }
 
-// Poll for saves made by other people.
-async function poll() {
-  if (document.hidden || state.saving || chat.busy) return;
-  try {
-    const res = await fetch(`${api}/history`);
-    if (!res.ok) return;
-    const versions = await res.json();
-    const latest = versions[0];
-    if (!latest || latest.version === state.baseVersion) return;
-    if (!state.dirty && !state.viewing) {
-      await loadLatest({ fit: false });
-      toast(`Updated with changes${latest.author ? ' from ' + latest.author : ''}`);
-    } else if (!$('banner').classList.contains('show') || state.viewing) {
-      showBanner(
-        `A newer version was saved${latest.author ? ' by <b>' + esc(latest.author) + '</b>' : ''} at ${esc(fmt(latest.at))}.`,
-        [
-          ['Load it (discard my changes)', () => loadLatest({ fit: false })],
-          ['Keep editing', hideBanner]
-        ]
-      );
-    }
-    if ($('history').classList.contains('show')) renderHistory();
-  } catch { /* server unreachable, try again later */ }
-}
-
 // ---------- wiring ----------
 
 $('author').value = prefs.get('author', '');
-$('author').addEventListener('change', () => prefs.set('author', author()));
+$('author').addEventListener('change', () => {
+  prefs.set('author', author());
+  live?.setName();
+});
 
 function togglePanel(panelId, prefKey, force) {
   const el = $(panelId);
@@ -596,7 +686,11 @@ window.addEventListener('keydown', (e) => {
   }
 });
 window.addEventListener('beforeunload', (e) => {
-  if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
+  // shared unsaved changes stay on the server for others; warn when they would only exist here
+  if (state.publishPending || (state.dirty && state.viewing) || (state.dirty && !live?.connected)) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
 });
 
-loadLatest().then(() => setInterval(poll, 10000));
+loadLatest().then(startLive);
