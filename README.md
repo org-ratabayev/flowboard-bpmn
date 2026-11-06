@@ -100,6 +100,20 @@ The ES-module plugins are fetched pre-bundled from esm.sh by `scripts/vendor-plu
 needed. To upgrade, bump the versions in that script and run `python3 scripts/vendor-plugins.py`.
 If you change `LINT_RULES`, regenerate `public/js/lint-config.mjs` accordingly.
 
+## Licenses
+
+The app bundles third-party code, mostly MIT, plus ISC, Apache-2.0 (htm), CC0 (randomcolor) and bpmn-js under the
+bpmn.io license. There's no GPL/AGPL code. The full list with license texts is in `THIRD_PARTY_LICENSES.md`, shown
+in the app at `/licenses` (linked from the project list and the editor's More menu).
+
+After changing vendored versions, run `python3 scripts/license-audit.py` to regenerate the list. Keep its `ROOTS`
+in sync with `scripts/vendor-plugins.py`.
+
+**bpmn.io watermark:** the bpmn.io license requires that the "powered by bpmn.io" watermark in the canvas corner is
+not removed or changed, and stays fully visible and never overlapped by other elements. The layout keeps it that way:
+side panels push the canvas aside (or below it on narrow screens) instead of covering it, and the canvas container is
+isolated (`public/styles.css`) so UI drawn inside the canvas stays below the watermark. Keep this in mind for new UI.
+
 ## Sharing outside your network
 
 There is **no authentication**: anyone with the URL can see all projects and edit them.
