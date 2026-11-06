@@ -409,6 +409,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
     if (parts.length === 0) return await serveStatic(res, path.join(PUBLIC_DIR, 'index.html'));
     if (parts[0] === 'p' && parts.length === 2) return await serveStatic(res, path.join(PUBLIC_DIR, 'editor.html'));
+    if (parts[0] === 'licenses' && parts.length === 1) {
+      const text = await fsp.readFile(path.join(__dirname, 'THIRD_PARTY_LICENSES.md'), 'utf8');
+      return send(res, 200, text, { 'Cache-Control': 'no-cache' });
+    }
     const file = path.resolve(PUBLIC_DIR, ...parts);
     if (!file.startsWith(PUBLIC_DIR + path.sep)) return send(res, 403, 'Forbidden');
     return await serveStatic(res, file);
