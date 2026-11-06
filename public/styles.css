@@ -95,6 +95,10 @@ body.editor { display: flex; flex-direction: column; height: 100vh; overflow: hi
 .banner .msg { flex: 1; }
 .workspace { flex: 1; display: flex; min-height: 0; }
 #canvas { flex: 1; position: relative; background: #fff; }
+/* bpmn.io license: the "powered by" watermark must stay fully visible and never be overlapped.
+   It is a sibling of the canvas; isolating the canvas keeps everything drawn inside it (overlays,
+   lint markers, live cursors, minimap) below the watermark, whatever z-index those use. */
+.bjs-container > .djs-container { isolation: isolate; }
 .side-panel {
   border-left: 1px solid var(--border);
   background: var(--surface);
@@ -239,7 +243,9 @@ body.editor { display: flex; flex-direction: column; height: 100vh; overflow: hi
 .toast.show { opacity: 1; }
 
 @media (max-width: 700px) {
-  .side-panel { position: absolute; right: 0; top: 0; bottom: 0; width: 85vw; z-index: 50; }
-  .workspace { position: relative; }
+  /* panels stack below the canvas instead of covering it (and the bpmn.io watermark) */
+  .workspace { flex-direction: column; }
+  #canvas { flex: 1 0 50%; min-height: 0; }
+  .side-panel { width: auto; border-left: none; border-top: 1px solid var(--border); flex: 0 1 auto; max-height: 50%; overflow: auto; }
   .topbar .name-input { min-width: 0; flex: 1; }
 }
