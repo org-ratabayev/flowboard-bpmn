@@ -8,6 +8,7 @@
     "start": "node src/main.ts"
   },
   "dependencies": {
-    "@flowboard/server": "workspace:*"
+    "@flowboard/server": "workspace:*",
+    "@flowboard/web": "workspace:*"
   }
 }

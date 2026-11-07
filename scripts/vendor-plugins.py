@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download the bpmn-js plugins as browser ES modules from esm.sh into public/vendor/esm/.
+"""Download the bpmn-js plugins as browser ES modules from esm.sh into packages/web/public/vendor/esm/.
 
 npm is not used: esm.sh bundles each package for the browser, and this script
 fetches every module the entries import (recursively) and rewrites the absolute
@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, 'public', 'vendor', 'esm')
+OUT = os.path.join(ROOT, 'packages', 'web', 'public', 'vendor', 'esm')
 CDN = 'https://esm.sh'
 UNPKG = 'https://unpkg.com'
 TARGET = 'es2022'

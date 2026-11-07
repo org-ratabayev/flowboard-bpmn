@@ -4,6 +4,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createServer, loadConfigFromEnv } from '@flowboard/server';
+import { publicDir } from '@flowboard/web';
 
 const root = path.resolve(import.meta.dirname, '..', '..', '..');
 
@@ -14,7 +15,7 @@ try {
 
 const config = await loadConfigFromEnv({
   defaults: {
-    publicDir: path.join(root, 'public'),
+    publicDir,
     licensesFile: path.join(root, 'THIRD_PARTY_LICENSES.md')
   }
 });
