@@ -12,7 +12,7 @@
       <h1>BPMN projects</h1>
       <span class="me" id="me"></span>
     </div>
-    <p class="sub">Anyone with a project link can open, edit and save it. Every save is kept in the project's history.</p>
+    <p class="sub">New projects are private: share them with people from the editor. Every save is kept in the project's history.</p>
 
     <div class="actions">
       <input type="text" id="newName" placeholder="New diagram name" autocomplete="off">
@@ -21,6 +21,11 @@
       <input type="file" id="importFile" accept=".bpmn,.xml" multiple hidden>
     </div>
 
+    <div class="filters" id="filters">
+      <button type="button" data-filter="all" class="active">All</button>
+      <button type="button" data-filter="mine">My projects</button>
+      <button type="button" data-filter="shared">Shared with me</button>
+    </div>
     <div id="list"></div>
 
     <p class="footer"><a href="/licenses" target="_blank" rel="noopener">Third-party licenses</a></p>
@@ -46,20 +51,41 @@
       return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    const ACCESS = { owner: 'You own it', editor: 'Can edit', viewer: 'Can view' };
+    let filter = 'all';
+
+    function accessCell(p) {
+      const owner = p.role === 'owner' ? '' : ` · ${esc(p.owner?.name || 'no owner')}`;
+      const everyone = p.visibility === 'everyone' ? '<span class="tag" title="Everyone signed in can view">Everyone</span>' : '';
+      return `<span class="access">${ACCESS[p.role] || ''}${owner}${everyone}</span>`;
+    }
+
+    document.getElementById('filters').addEventListener('click', (e) => {
+      const button = e.target.closest('button[data-filter]');
+      if (!button) return;
+      filter = button.dataset.filter;
+      for (const b of document.querySelectorAll('#filters button')) b.classList.toggle('active', b === button);
+      load();
+    });
+
     async function load() {
       const res = await fetch('/api/projects');
-      const projects = await res.json();
+      const all = await res.json();
+      const projects = all.filter((p) => filter === 'all' || (filter === 'mine' ? p.role === 'owner' : p.role !== 'owner'));
       if (!projects.length) {
-        listEl.innerHTML = '<div class="empty">No projects yet. Create a new diagram or import an existing .bpmn file.</div>';
+        listEl.innerHTML = `<div class="empty">${all.length
+          ? 'No projects here.'
+          : 'No projects yet. Create a new diagram or import an existing .bpmn file.'}</div>`;
         return;
       }
       listEl.innerHTML = `
         <table class="projects">
-          <thead><tr><th>Name</th><th>Last saved</th><th>By</th><th>Versions</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Access</th><th>Last saved</th><th>By</th><th>Versions</th><th></th></tr></thead>
           <tbody>
             ${projects.map((p) => `
               <tr>
                 <td><a href="/p/${encodeURIComponent(p.id)}">${esc(p.name)}</a></td>
+                <td>${accessCell(p)}</td>
                 <td>${esc(fmt(p.updatedAt))}</td>
                 <td>${esc(p.updatedBy || '—')}</td>
                 <td class="num">${p.versionCount}</td>

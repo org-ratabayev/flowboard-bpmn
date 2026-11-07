@@ -5,7 +5,8 @@ import { looksLikeBpmn } from './bpmn.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
 import type { LiveHub } from './live.ts';
-import { isVersionName, type DocumentStore } from './storage/index.ts';
+import { atLeast, isGrantRole, isVisibility, type AccessStore, type Role } from './storage/accessStore.ts';
+import { isProjectId, isVersionName, type DocumentStore } from './storage/index.ts';
 
 const MAX_BODY = 20 * 1024 * 1024;
 const MAX_CHAT_BODY = 60 * 1024 * 1024; // attachments arrive base64-encoded
@@ -18,11 +19,60 @@ export interface ApiContext {
   identity: Identity;
   auth: Pick<Auth, 'kind' | 'canLogout'>;
   tokens: TokenStore;
+  access: AccessStore;
   /** True when the request was authenticated with an access token rather than a browser session. */
   viaToken: boolean;
 }
 
 const TOKEN_EXPIRY_DAYS_MAX = 3650;
+
+/**
+ * /api/projects/:id/access…  Everyone with access sees who else has it; only the owner changes it.
+ *   GET                       owner, visibility and grants
+ *   PATCH  { visibility }     'private' or 'everyone' (every signed-in user can view)
+ *   PUT    members/:userId { role }   give or change a role ('viewer' | 'editor')
+ *   DELETE members/:userId      remove it (the user may also remove their own access)
+ */
+async function handleAccess(
+  ctx: ApiContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  id: string,
+  rest: string[],
+  allowed: (minimum: Role) => boolean
+): Promise<void> {
+  const { access, identity } = ctx;
+  if (rest.length === 0) {
+    if (req.method === 'GET') return send(res, 200, await access.access(id));
+    if (req.method === 'PATCH') {
+      if (!allowed('owner')) return;
+      const { visibility } = await readJson(req, 4096);
+      if (!isVisibility(visibility)) return send(res, 400, { error: "visibility must be 'private' or 'everyone'" });
+      await access.setVisibility(id, visibility);
+      return send(res, 200, await access.access(id));
+    }
+    return send(res, 405, { error: 'Method not allowed' });
+  }
+  if (rest.length === 2 && rest[0] === 'members') {
+    const userId = rest[1];
+    if (req.method === 'PUT') {
+      if (!allowed('owner')) return;
+      const { role } = await readJson(req, 4096);
+      if (!isGrantRole(role)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
+      const result = await access.grant(id, userId, role, identity.id);
+      if (result === 'unknown-user') return send(res, 404, { error: 'User not found' });
+      if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
+      return send(res, 200, await access.access(id));
+    }
+    if (req.method === 'DELETE') {
+      if (userId !== identity.id && !allowed('owner')) return;
+      if (!(await access.revoke(id, userId))) return send(res, 404, { error: 'This user has no access to remove' });
+      return send(res, 204, '');
+    }
+    return send(res, 405, { error: 'Method not allowed' });
+  }
+  return send(res, 404, { error: 'Not found' });
+}
 
 async function handleTokens(ctx: ApiContext, req: IncomingMessage, res: ServerResponse, tokenId: string | undefined): Promise<void> {
   // A leaked token must not be able to create more tokens or hide itself.
@@ -64,10 +114,15 @@ export async function handleApi(
     return send(res, 200, { id: identity.id, name: identity.name, email: identity.email, provider: identity.provider, canLogout: ctx.auth.canLogout && !ctx.viaToken });
   }
   if (resource === 'tokens' && parts.length <= 3) return handleTokens(ctx, req, res, parts[2]);
+  if (resource === 'users' && parts.length === 2 && req.method === 'GET') {
+    const q = (url.searchParams.get('q') || '').trim();
+    if (q.length < 2) return send(res, 200, []);
+    return send(res, 200, await ctx.access.searchUsers(q.slice(0, 100)));
+  }
   if (resource !== 'projects') return send(res, 404, { error: 'Not found' });
 
   if (!id) {
-    if (req.method === 'GET') return send(res, 200, await store.listProjects());
+    if (req.method === 'GET') return send(res, 200, await store.listProjects(identity.id));
     if (req.method === 'POST') {
       const body = await readJson(req, MAX_BODY);
       if (body.xml && !looksLikeBpmn(body.xml)) return send(res, 400, { error: 'Not a BPMN file' });
@@ -77,11 +132,18 @@ export async function handleApi(
     return send(res, 405, { error: 'Method not allowed' });
   }
 
-  if (!(await store.hasProject(id))) return send(res, 404, { error: 'Project not found' });
+  // Every project route needs at least the viewer role; without it the project does not exist for this user.
+  const role = isProjectId(id) ? await ctx.access.roleOf(identity.id, id) : 'none';
+  if (role === 'none') return send(res, 404, { error: 'Project not found' });
+  const allowed = (minimum: Role): boolean => {
+    if (atLeast(role, minimum)) return true;
+    send(res, 403, { error: minimum === 'owner' ? 'Only the owner can change who has access' : 'You can view this project but not change it' });
+    return false;
+  };
 
   if (!sub) {
     if (req.method === 'GET') {
-      const [meta, xml, version] = await Promise.all([store.readMeta(id), store.readLatest(id), store.currentVersion(id)]);
+      const [meta, xml, version, access] = await Promise.all([store.readMeta(id), store.readLatest(id), store.currentVersion(id), ctx.access.access(id)]);
       // unsaved changes shared by people currently editing take precedence over the saved file
       const shared = live.liveDoc(id);
       return send(res, 200, {
@@ -90,9 +152,14 @@ export async function handleApi(
         version,
         xml: shared ? shared.xml : xml,
         rev: shared ? shared.rev : 0,
-        dirty: shared ? shared.dirty : false
+        dirty: shared ? shared.dirty : false,
+        role,
+        visibility: access.visibility,
+        owner: access.owner && { id: access.owner.id, name: access.owner.name }
       });
     }
+    if (req.method !== 'PUT' && req.method !== 'PATCH') return send(res, 405, { error: 'Method not allowed' });
+    if (!allowed('editor')) return;
     if (req.method === 'PUT') {
       const body = await readJson(req, MAX_BODY);
       if (!looksLikeBpmn(body.xml)) return send(res, 400, { error: 'Not a BPMN diagram' });
@@ -119,13 +186,19 @@ export async function handleApi(
   if (sub === 'live') {
     if (req.method === 'GET') return live.handleStream(req, res, id, url, identity.name);
     if (req.method === 'POST') {
-      const result = live.handlePost(id, await readJson(req, MAX_BODY));
+      const body = await readJson(req, MAX_BODY);
+      // viewers share their cursor and presence, but not diagram changes
+      if (body.type === 'doc' && !allowed('editor')) return;
+      const result = live.handlePost(id, body);
       return send(res, result.status, result.body);
     }
     return send(res, 405, { error: 'Method not allowed' });
   }
 
+  if (sub === 'access') return handleAccess(ctx, req, res, id, parts.slice(4), allowed);
+
   if (sub === 'chat' && req.method === 'POST') {
+    if (!allowed('editor')) return;
     if (!ctx.chat) return send(res, 403, { error: 'Chat is disabled on this server' });
     const body = await readJson(req, MAX_CHAT_BODY);
     try {

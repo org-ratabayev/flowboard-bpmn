@@ -2,6 +2,7 @@
 // Ids and version names keep the format of the earlier folder storage, so links stay valid.
 
 import { EMPTY_DIAGRAM } from '../bpmn.ts';
+import { adoptUnowned, ROLE_SQL, type Role, type Visibility } from './accessStore.ts';
 import { toIso, type Db, type Queryable } from './db.ts';
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -22,6 +23,10 @@ export interface ProjectSummary {
   updatedAt: string;
   updatedBy: string | null;
   versionCount: number;
+  /** Present when listed for a user. */
+  role?: Role;
+  visibility?: Visibility;
+  owner?: { id: string; name: string } | null;
 }
 
 export interface VersionInfo {
@@ -134,14 +139,23 @@ export function createSqlStore(db: Db) {
       return db.read(async (q) => Number((await q.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM documents'))!.n));
     },
 
-    listProjects(): Promise<ProjectSummary[]> {
+    /** Projects the user can see, with their role; without a user, every project (exports, CLI). */
+    listProjects(userId?: string): Promise<ProjectSummary[]> {
       return db.read(async (q) => {
-        const rows = await q.all<{ id: string; name: string; created_at: unknown; updated_at: unknown; updated_by: string | null; version_count: unknown }>(
-          `SELECT d.id, d.name, d.created_at, d.updated_at,
+        const rows = await q.all<{
+          id: string; name: string; created_at: unknown; updated_at: unknown; updated_by: string | null; version_count: unknown;
+          role: Role; visibility: Visibility; owner_id: string | null; owner_name: string | null;
+        }>(
+          `SELECT d.id, d.name, d.created_at, d.updated_at, d.visibility, d.owner_id, o.name AS owner_name,
+                  ${userId ? ROLE_SQL : `'owner'`} AS role,
                   (SELECT v.author_name FROM document_versions v WHERE v.document_id = d.id ORDER BY v.seq DESC LIMIT 1) AS updated_by,
                   (SELECT COUNT(*) FROM document_versions v WHERE v.document_id = d.id) AS version_count
            FROM documents d
-           ORDER BY d.updated_at DESC, d.id`
+           LEFT JOIN users o ON o.id = d.owner_id
+           LEFT JOIN document_grants g ON g.document_id = d.id AND g.user_id = $1
+           ${userId ? `WHERE d.owner_id = $1 OR g.role IS NOT NULL OR d.visibility = 'everyone'` : ''}
+           ORDER BY d.updated_at DESC, d.id`,
+          [userId ?? '']
         );
         return rows.map((r) => ({
           id: r.id,
@@ -149,7 +163,8 @@ export function createSqlStore(db: Db) {
           createdAt: toIso(r.created_at),
           updatedAt: toIso(r.updated_at)!,
           updatedBy: r.updated_by || null,
-          versionCount: Number(r.version_count)
+          versionCount: Number(r.version_count),
+          ...(userId ? { role: r.role, visibility: r.visibility, owner: r.owner_id ? { id: r.owner_id, name: r.owner_name! } : null } : {})
         }));
       });
     },
@@ -158,7 +173,8 @@ export function createSqlStore(db: Db) {
       return db.transaction(async (q) => {
         const id = await freeId(q, slugify(name));
         const now = new Date().toISOString();
-        await q.run('INSERT INTO documents (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)', [id, name || id, now, now]);
+        // new projects are private to their creator
+        await q.run('INSERT INTO documents (id, name, created_at, updated_at, owner_id) VALUES ($1, $2, $3, $4, $5)', [id, name || id, now, now, authorId || null]);
         await insertVersion(q, id, xml || EMPTY_DIAGRAM, { author, authorId, note: 'Created' });
         return id;
       });
@@ -239,6 +255,8 @@ export function createSqlStore(db: Db) {
             [id, ++seq, v.name, v.xml, v.author, v.note, Buffer.byteLength(v.xml), v.at]
           );
         }
+        // imported projects belong to the first user who signed in (or to them once they do)
+        await adoptUnowned(q);
         return { id, status: 'imported' as const };
       });
     },

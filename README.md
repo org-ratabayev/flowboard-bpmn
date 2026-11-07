@@ -229,10 +229,33 @@ The user comes from `AUTH_SUBJECT_HEADER` (default `x-forwarded-user`); the opti
 `AUTH_EMAIL_HEADER` give the display name and email. Behind any proxy that terminates TLS, set `PUBLIC_ORIGIN`
 (e.g. `https://bpmn.example.com`) so cookies are marked Secure and the `Origin` check uses the public address.
 
+## Projects and sharing
+
+Every project has an **owner**. New projects are **private**: only their owner sees them until they share them with
+**Share** in the editor:
+
+| Role | Can |
+|---|---|
+| Owner | everything below, plus change who has access |
+| Can edit | open, save, rename, restore versions, edit live with others, use the chat |
+| Can view | open, see the history, download and export, see others live |
+
+- Add people by name or email (people appear after they signed in once) and pick *Can edit* or *Can view*.
+- *General access → Everyone signed in can view* makes a project readable by every signed-in user.
+- Anyone with access sees who else has it and can remove their own access.
+- Projects that existed before sharing (including folders imported on first start) belong to the **first user who
+  signed in**, and are private as well.
+- Someone without access gets "Project not found", the same as for a project that does not exist.
+- The project list shows your role on each project and filters *My projects* / *Shared with me*.
+
+Viewers see a *View only* badge; the editor does not save or share their changes. A fully locked editor and
+role changes that apply without reloading the page come next.
+
 ## Sharing outside your network
 
-All projects are visible to every signed-in user (per-project sharing comes later). With `AUTH=dev` that means anyone
-who can open the URL, so only share a tunnel with people you trust, or put an authenticating proxy in front.
+Each project is visible only to its owner and the people it is shared with. With `AUTH=dev` anyone who can open the
+URL can sign in under any name, though, including the owner's, so only share a tunnel with people you trust, or use
+`AUTH=oidc` / an authenticating proxy.
 
 Easiest option: a Cloudflare quick tunnel (no account needed):
 

@@ -11,6 +11,7 @@ import { createAuth, type Auth, type Identity } from './auth/index.ts';
 import { createAuthStore } from './auth/authStore.ts';
 import { isSameOrigin } from './auth/requestChecks.ts';
 import { createTokenStore, type TokenStore } from './auth/tokenStore.ts';
+import { createAccessStore, type AccessStore } from './storage/accessStore.ts';
 import { handleApi, type ApiContext } from './routes.ts';
 import { importFromFolder, openStore, type DocumentStore, type ImportResult } from './storage/index.ts';
 
@@ -34,7 +35,8 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   let store: DocumentStore | null = null;
   let auth: Auth | null = null;
   let tokens: TokenStore | null = null;
-  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'viaToken'> = {
+  let access: AccessStore | null = null;
+  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'viaToken'> = {
     live: createLiveHub(),
     chat: config.chat.enabled
       ? createChatService({ provider: createClaudeCodeProvider(config.chat.claudeCode), workDir: config.chat.workDir })
@@ -75,7 +77,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         }
       }
 
-      if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth!, tokens: tokens!, viaToken }, req, res, parts, url);
+      if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth!, tokens: tokens!, access: access!, viaToken }, req, res, parts, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
       if (parts.length === 0) return await serveStatic(res, path.join(publicDir, 'index.html'));
       if (parts.length === 1 && parts[0] === 'settings') return await serveStatic(res, path.join(publicDir, 'settings.html'));
@@ -103,10 +105,13 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       const authStore = createAuthStore(store.db);
       auth = createAuth(config, authStore);
       tokens = createTokenStore(store.db);
+      access = createAccessStore(store.db);
       await authStore.deleteExpiredSessions();
       if (config.storage.importOnFirstStart && (await store.countProjects()) === 0) {
         server.imported = await importFromFolder(store, config.dataDir);
       }
+      // documents from before sharing existed (or imported while nobody had signed in) get an owner
+      await access.adoptUnowned();
       return new Promise((resolve, reject) => {
         httpServer.once('error', reject);
         httpServer.listen(config.port, config.host, () => {

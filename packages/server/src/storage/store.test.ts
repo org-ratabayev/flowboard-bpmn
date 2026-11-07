@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EMPTY_DIAGRAM } from '../bpmn.ts';
+import { createAuthStore } from '../auth/authStore.ts';
+import { createAccessStore } from './accessStore.ts';
 import { migrate } from './migrations.ts';
 import type { DocumentStore } from './sqlStore.ts';
 import { backends } from './testBackends.ts';
@@ -93,6 +95,22 @@ describe.each(backends)('$name store', (backend) => {
     expect((await store.renameProject(id, undefined)).name).toBe('New');
     expect((await store.renameProject(id, '')).name).toBe('');
     expect((await store.listProjects())[0].name).toBe(id);
+  });
+
+  it('gives projects without an owner to the first user who signed in', async () => {
+    const access = createAccessStore(store.db);
+    await store.createProject('Before users', xml('1'), null, null);
+    expect(await access.adoptUnowned()).toBe(0); // nobody to give it to yet
+    const auth = createAuthStore(store.db);
+    const first = await auth.upsertUser({ provider: 'dev', subject: 'first', name: 'First', email: null });
+    expect(await access.roleOf(first.id, 'before-users')).toBe('owner'); // adopted when the first user appeared
+    const second = await auth.upsertUser({ provider: 'dev', subject: 'second', name: 'Second', email: null });
+    expect(await access.roleOf(second.id, 'before-users')).toBe('none');
+
+    await store.importProject({ id: 'later', name: 'Later', createdAt: null, importKey: 'folder:later', versions: [] });
+    expect(await access.roleOf(first.id, 'later')).toBe('owner');
+    expect(await store.listProjects(second.id)).toEqual([]);
+    expect((await store.listProjects()).map((p) => p.id).sort()).toEqual(['before-users', 'later']);
   });
 
   it('imports a project with its history once', async () => {

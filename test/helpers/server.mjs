@@ -118,6 +118,14 @@ export async function startServer(env = {}, { files } = {}) {
   /** Request helper signed in as `name`. */
   const as = (name) => async (method, urlPath, body) => request(base, method, urlPath, body, { cookie: await signIn(name) });
 
+  /** The owner (default "Tester") gives `userName` a role on a project. */
+  async function grant(projectId, userName, role = 'editor', ownerName = 'Tester') {
+    const userId = (await as(userName)('GET', '/api/me')).body.id;
+    const res = await as(ownerName)('PUT', `/api/projects/${projectId}/access/members/${userId}`, { role });
+    if (res.status !== 200) throw new Error(`Granting ${role} to ${userName} failed: ${res.status} ${JSON.stringify(res.body)}`);
+    return userId;
+  }
+
   return {
     base,
     dataDir,
@@ -127,6 +135,7 @@ export async function startServer(env = {}, { files } = {}) {
     request: as('Tester'),
     as,
     signIn,
+    grant,
     /** Without a session. */
     anonymous: (method, urlPath, body, options) => request(base, method, urlPath, body, options),
     async stop() {

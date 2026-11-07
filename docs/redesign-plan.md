@@ -648,6 +648,16 @@ Tasks:
 Acceptance: matrix test green; user B sees only documents explicitly shared with them or `everyone` documents; ids of
 other documents return 404.
 
+Implementation notes (4a done; 4b share links, pending grants by email and audit log follow):
+- Owner decisions: documents that existed before sharing belong to the first user who signed in (adopted at startup,
+  after imports and when the first user is created); new and existing documents are private by default.
+- Share API lives under `/api/projects/:id/access` (GET for anyone with access; PATCH visibility, PUT/DELETE
+  `members/:userId` for the owner; users may remove their own grant). `GET /api/users?q=` searches signed-in users.
+- Chat needs the editor role. Unsupported methods answer 405 before the role check.
+- The matrix test lists the routes explicitly instead of enumerating the router (the router is hand-written).
+- Viewers get a "View only" UI (no Save/Chat, no publishing or saving); the locked editor and live role changes are Phase 5.
+- The share dialog is a panel without a full-page backdrop, so the bpmn.io watermark is never covered.
+
 ### Phase 5: Live collaboration on the new model + live role changes
 
 Tasks:

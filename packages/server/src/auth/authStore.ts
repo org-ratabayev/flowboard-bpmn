@@ -1,6 +1,7 @@
 // Users and browser sessions. Session tokens are random; only their SHA-256 hash is stored.
 
 import crypto from 'node:crypto';
+import { adoptUnowned } from '../storage/accessStore.ts';
 import { toIso, type Db } from '../storage/db.ts';
 
 export interface Identity {
@@ -53,6 +54,8 @@ export function createAuthStore(db: Db) {
           'INSERT INTO users (id, provider, subject, name, email, created_at, last_seen_at) VALUES ($1, $2, $3, $4, $5, $6, $6)',
           [id, ext.provider, ext.subject, ext.name, ext.email ?? null, now]
         );
+        // projects that existed before anyone signed in belong to the first user
+        await adoptUnowned(q);
         return { id, ...ext, email: ext.email ?? null };
       });
     },
