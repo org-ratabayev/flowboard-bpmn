@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Auth, Identity } from './auth/index.ts';
+import { cleanDisplayName, type Auth, type Identity } from './auth/index.ts';
+import type { TokenStore } from './auth/tokenStore.ts';
 import { looksLikeBpmn } from './bpmn.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
@@ -16,6 +17,37 @@ export interface ApiContext {
   /** The signed-in user making the request. */
   identity: Identity;
   auth: Pick<Auth, 'kind' | 'canLogout'>;
+  tokens: TokenStore;
+  /** True when the request was authenticated with an access token rather than a browser session. */
+  viaToken: boolean;
+}
+
+const TOKEN_EXPIRY_DAYS_MAX = 3650;
+
+async function handleTokens(ctx: ApiContext, req: IncomingMessage, res: ServerResponse, tokenId: string | undefined): Promise<void> {
+  // A leaked token must not be able to create more tokens or hide itself.
+  if (ctx.viaToken) return send(res, 403, { error: 'Manage access tokens in the app (Settings), not with a token' });
+  const userId = ctx.identity.id;
+  if (!tokenId && req.method === 'GET') return send(res, 200, await ctx.tokens.list(userId));
+  if (!tokenId && req.method === 'POST') {
+    const body = await readJson(req, 4096);
+    const name = cleanDisplayName(body.name);
+    if (!name) return send(res, 400, { error: 'Give the token a name' });
+    const days = body.expiresInDays ?? null;
+    if (days !== null && !(Number.isInteger(days) && days >= 1 && days <= TOKEN_EXPIRY_DAYS_MAX)) {
+      return send(res, 400, { error: `expiresInDays must be a whole number from 1 to ${TOKEN_EXPIRY_DAYS_MAX}, or null for no expiry` });
+    }
+    try {
+      return send(res, 201, await ctx.tokens.create(userId, name, days));
+    } catch (err) {
+      return send(res, 409, { error: (err as Error).message });
+    }
+  }
+  if (tokenId && req.method === 'DELETE') {
+    if (!(await ctx.tokens.revoke(userId, tokenId))) return send(res, 404, { error: 'Token not found' });
+    return send(res, 204, '');
+  }
+  return send(res, 405, { error: 'Method not allowed' });
 }
 
 /** Handles /api/projects/…; `parts` is the decoded path split at slashes. */
@@ -29,8 +61,9 @@ export async function handleApi(
   const { store, live, identity } = ctx;
   const [, resource, id, sub, subId] = parts;
   if (resource === 'me' && parts.length === 2 && req.method === 'GET') {
-    return send(res, 200, { id: identity.id, name: identity.name, email: identity.email, provider: identity.provider, canLogout: ctx.auth.canLogout });
+    return send(res, 200, { id: identity.id, name: identity.name, email: identity.email, provider: identity.provider, canLogout: ctx.auth.canLogout && !ctx.viaToken });
   }
+  if (resource === 'tokens' && parts.length <= 3) return handleTokens(ctx, req, res, parts[2]);
   if (resource !== 'projects') return send(res, 404, { error: 'Not found' });
 
   if (!id) {

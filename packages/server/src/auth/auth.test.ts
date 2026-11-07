@@ -6,6 +6,7 @@ import { backends } from '../storage/testBackends.ts';
 import { createAuthStore, type AuthStore } from './authStore.ts';
 import { cleanDisplayName } from './index.ts';
 import { addressMatcher, isSameOrigin, parseCookies } from './requestChecks.ts';
+import { createTokenStore, MAX_TOKENS_PER_USER } from './tokenStore.ts';
 
 const req = (headers: Record<string, string>) => ({ headers, socket: {} }) as unknown as IncomingMessage;
 
@@ -94,6 +95,38 @@ describe.each(backends)('$name users and sessions', (backend) => {
     expect(await auth.takeFlow('old')).toBeNull();
     const rows = await db.read((q) => q.all<{ state_hash: string }>('SELECT state_hash FROM auth_flows'));
     expect(rows).toEqual([]);
+  });
+
+  it('keeps access tokens as hashes and honours revocation and expiry', async () => {
+    const tokens = createTokenStore(db);
+    const user = await auth.upsertUser({ provider: 'dev', subject: 'dee', name: 'Dee', email: null });
+    const created = await tokens.create(user.id, 'CLI', 30);
+    expect(await tokens.userForToken(created.token)).toEqual(user);
+    const rows = await db.read((q) => q.all<{ token_hash: string; hint: string }>('SELECT token_hash, hint FROM access_tokens'));
+    expect(rows).toEqual([{ token_hash: createHash('sha256').update(created.token).digest('hex'), hint: created.hint }]);
+
+    const expired = await tokens.create(user.id, 'Old', -1);
+    expect(await tokens.userForToken(expired.token)).toBeNull();
+    expect(await tokens.revoke(user.id, created.id)).toBe(true);
+    expect(await tokens.revoke(user.id, created.id)).toBe(false);
+    expect(await tokens.userForToken(created.token)).toBeNull();
+    expect((await tokens.list(user.id)).map((t) => t.name)).toEqual(['Old']);
+  });
+
+  it('records the last use at most once an hour and limits tokens per user', async () => {
+    const tokens = createTokenStore(db);
+    const user = await auth.upsertUser({ provider: 'dev', subject: 'eve', name: 'Eve', email: null });
+    const { token, id } = await tokens.create(user.id, 'CLI', null);
+    await tokens.userForToken(token);
+    const first = (await tokens.list(user.id))[0].lastUsedAt!;
+    await new Promise((r) => setTimeout(r, 5));
+    await tokens.userForToken(token);
+    expect((await tokens.list(user.id))[0].lastUsedAt).toBe(first);
+
+    for (let i = 1; i < MAX_TOKENS_PER_USER; i++) await tokens.create(user.id, `t${i}`, null);
+    await expect(tokens.create(user.id, 'one too many', null)).rejects.toThrow(/At most/);
+    await tokens.revoke(user.id, id);
+    await expect(tokens.create(user.id, 'fits again', null)).resolves.toBeDefined();
   });
 
   it('stores only a hash of the session token', async () => {

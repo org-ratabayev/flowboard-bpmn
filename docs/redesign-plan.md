@@ -627,6 +627,10 @@ Implementation notes (3a done; 3b OIDC and 3c PATs follow):
   database (`auth_flows`) and tied to the browser by a cookie, so it works across instances. Discovery happens on the
   first sign-in. Optional `allowedEmailDomains`. Upstream access/refresh tokens are not stored yet; that comes with
   the features that call other services on the user's behalf (chat providers, MCP).
+- 3c (done): personal access tokens (`fb_pat_…`, table `access_tokens`, SHA-256 hash + hint, expiry 30/90/365 days or
+  none, revocation, last use recorded at most hourly, 50 active per user) and a Settings page. Token management needs a
+  browser session. Any `Authorization` header on `/api` is treated as a token attempt (no cookie fallback); Bearer
+  requests skip the Origin check. Rate limiting of token use is left for when the MCP server exists (Phase 7).
 
 ### Phase 4: Authorization and sharing
 

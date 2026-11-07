@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · BPMN</title>
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div class="page">
+    <div class="page-head">
+      <h1><a href="/" class="back">← Projects</a> Settings</h1>
+      <span class="me" id="me"></span>
+    </div>
+
+    <h2>Access tokens</h2>
+    <p class="sub">Tokens let scripts and tools (for example an MCP client) use the API as you:
+      send <code>Authorization: Bearer &lt;token&gt;</code>. Each token is shown only once; revoke it when you no longer need it.</p>
+
+    <form class="actions" id="createForm">
+      <input type="text" id="tokenName" placeholder="Token name, e.g. Laptop MCP client" maxlength="40" required>
+      <select id="tokenExpiry" title="Expires">
+        <option value="30">Expires in 30 days</option>
+        <option value="90" selected>Expires in 90 days</option>
+        <option value="365">Expires in 1 year</option>
+        <option value="">Never expires</option>
+      </select>
+      <button class="primary" type="submit">Create token</button>
+    </form>
+    <p class="error" id="error" hidden></p>
+
+    <div class="new-token" id="newToken" hidden>
+      <p><b>Copy this token now.</b> It will not be shown again.</p>
+      <div class="actions">
+        <input type="text" id="newTokenValue" readonly>
+        <button type="button" id="copyToken">Copy</button>
+      </div>
+      <pre id="newTokenExample"></pre>
+    </div>
+
+    <div id="tokenList"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script type="module" src="/src/settings.mjs"></script>
+</body>
+</html>

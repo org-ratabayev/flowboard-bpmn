@@ -202,6 +202,21 @@ Sign-in uses the authorization code flow with PKCE, state and nonce; the ID toke
 starts. The provider is contacted on the first sign-in, so the server starts even while it is unreachable. Signing
 out ends the session in this app only, not at the provider.
 
+### Access tokens (API clients)
+
+Scripts and tools such as MCP clients use personal access tokens instead of a browser session. Create one under
+**Settings** (click your name at the top); it is shown once. Then send it with each API request:
+
+```sh
+curl -H "Authorization: Bearer fb_pat_…" https://bpmn.example.com/api/projects
+```
+
+A token acts as the user who created it. Only a hash is stored; tokens can expire (30/90/365 days or never) and be
+revoked at any time, and the list shows when each was last used. Tokens cannot create, list or revoke tokens: that
+needs a browser session, so a leaked token cannot hide or extend itself. When a request carries an `Authorization`
+header, only that header counts: an invalid token is refused even if the browser also has a session cookie. A proxy
+in front of the app must therefore pass `Authorization` through unchanged and not add its own.
+
 ### Behind a proxy (trusted headers)
 
 For `trusted-headers`, the proxy must prove that the request came through it, otherwise anyone reaching the server

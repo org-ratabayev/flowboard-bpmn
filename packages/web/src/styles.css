@@ -65,6 +65,14 @@ input[type="text"] {
 .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .login { max-width: 480px; }
 .error { color: var(--danger); }
+a.me-name { text-decoration: none; }
+a.me-name:hover { text-decoration: underline; }
+.page h2 { font-size: 17px; margin: 28px 0 4px; }
+.page h1 .back { font-size: 14px; font-weight: 400; margin-right: 8px; text-decoration: none; }
+button.danger { border-color: var(--danger); color: var(--danger); }
+.new-token { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
+.new-token input { font-family: ui-monospace, monospace; }
+.new-token pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; color: var(--muted); margin: 0; }
 .status { color: var(--muted); font-size: 13px; }
 .status.dirty { color: #b26a00; }
 .status.ok { color: var(--ok); }
