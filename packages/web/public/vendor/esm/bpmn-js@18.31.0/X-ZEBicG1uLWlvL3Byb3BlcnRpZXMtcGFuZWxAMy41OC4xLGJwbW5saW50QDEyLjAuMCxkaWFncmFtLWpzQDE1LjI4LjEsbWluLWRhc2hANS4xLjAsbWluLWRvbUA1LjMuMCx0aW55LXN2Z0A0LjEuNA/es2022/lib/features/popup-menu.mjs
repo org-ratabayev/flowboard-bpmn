@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/popup-menu */
-import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/popup-menu.mjs";import o from"./replace.mjs";import r from"./popup-menu/ReplaceMenuProvider.mjs";import p from"./auto-place.mjs";import{PopupEntries as n}from"./popup-menu/PopupEntries.mjs";var l={__depends__:[e,o,p],__init__:["replaceMenuProvider"],replaceMenuProvider:["type",r]};export{n as PopupEntries,l as default};
-//# sourceMappingURL=popup-menu.mjs.map

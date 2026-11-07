@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/core/index */
-import t from"../draw/index.mjs";import e from"./Canvas.mjs";import r from"./ElementRegistry.mjs";import o from"./ElementFactory.mjs";import m from"./EventBus.mjs";import p from"./GraphicsFactory.mjs";var _={__depends__:[t],__init__:["canvas"],canvas:["type",e],elementRegistry:["type",r],elementFactory:["type",o],eventBus:["type",m],graphicsFactory:["type",p]};export{_ as default};
-//# sourceMappingURL=index.mjs.map

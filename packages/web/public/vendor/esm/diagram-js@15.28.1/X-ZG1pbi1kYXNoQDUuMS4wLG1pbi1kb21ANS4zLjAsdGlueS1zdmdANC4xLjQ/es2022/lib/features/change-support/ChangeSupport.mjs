@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/change-support/ChangeSupport */
-import{getType as m}from"../../util/Elements.mjs";function a(t,c,f,o){t.on("element.changed",function(e){var n=e.element;(n.parent||n===c.getRootElement())&&(e.gfx=f.getGraphics(n)),e.gfx&&t.fire(m(n)+".changed",e)}),t.on("elements.changed",function(e){var n=e.elements;n.forEach(function(i){t.fire("element.changed",{element:i})}),o.updateContainments(n)}),t.on("shape.changed",function(e){o.update("shape",e.element,e.gfx)}),t.on("connection.changed",function(e){o.update("connection",e.element,e.gfx)})}a.$inject=["eventBus","canvas","elementRegistry","graphicsFactory"];export{a as default};
-//# sourceMappingURL=ChangeSupport.mjs.map

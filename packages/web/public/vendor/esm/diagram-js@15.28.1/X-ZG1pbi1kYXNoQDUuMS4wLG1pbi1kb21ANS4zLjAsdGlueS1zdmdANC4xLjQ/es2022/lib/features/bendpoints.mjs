@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/bendpoints */
-import e from"./dragging/index.mjs";import n from"./rules/index.mjs";import o from"./bendpoints/Bendpoints.mjs";import p from"./bendpoints/BendpointMove.mjs";import t from"./bendpoints/BendpointMovePreview.mjs";import i from"./bendpoints/ConnectionSegmentMove.mjs";import r from"./bendpoints/BendpointSnapping.mjs";var b={__depends__:[e,n],__init__:["bendpoints","bendpointSnapping","bendpointMovePreview"],bendpoints:["type",o],bendpointMove:["type",p],bendpointMovePreview:["type",t],connectionSegmentMove:["type",i],bendpointSnapping:["type",r]};export{b as default};
-//# sourceMappingURL=bendpoints.mjs.map

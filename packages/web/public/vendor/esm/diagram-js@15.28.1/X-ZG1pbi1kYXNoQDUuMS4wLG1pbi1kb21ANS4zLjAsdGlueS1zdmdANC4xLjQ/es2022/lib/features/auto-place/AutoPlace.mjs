@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/auto-place/AutoPlace */
-import{asTRBL as u,getMid as f}from"../../layout/LayoutUtil.mjs";import{DEFAULT_DISTANCE as l}from"./AutoPlaceUtil.mjs";var d=100;function c(e,n,o){e.on("autoPlace",d,function(a){var r=a.shape,t=a.source;return s(t,r)}),e.on("autoPlace.end",function(a){o.scrollToElement(a.shape)}),this.append=function(a,r,t){e.fire("autoPlace.start",{source:a,shape:r});var p=e.fire("autoPlace",{source:a,shape:r}),i=n.appendShape(a,r,p,a.parent,t);return e.fire("autoPlace.end",{source:a,shape:i}),i}}c.$inject=["eventBus","modeling","canvas"];function s(e,n,o){o||(o={});var a=o.defaultDistance||l,r=f(e),t=u(e);return{x:t.right+a+n.width/2,y:r.y}}export{c as default};
-//# sourceMappingURL=AutoPlace.mjs.map

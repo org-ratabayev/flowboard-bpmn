@@ -1,6 +1,7 @@
 // Default entry point: settings come from .env at the repository root, the environment
 // and an optional APP_CONFIG module (see README).
 
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer, loadConfigFromEnv } from '@flowboard/server';
@@ -12,6 +13,11 @@ const root = path.resolve(import.meta.dirname, '..', '..', '..');
 try {
   process.loadEnvFile(path.join(root, '.env'));
 } catch { /* no .env: use defaults */ }
+
+if (!fs.existsSync(path.join(publicDir, 'editor.html'))) {
+  console.error('The browser app is not built yet. Run "pnpm build" (or start with "pnpm start", which builds first).');
+  process.exit(1);
+}
 
 const config = await loadConfigFromEnv({
   defaults: {

@@ -1,3 +1,0 @@
-/* esm.sh - @bpmn-io/diagram-js-ui@0.2.4 */
-import{html as r}from"../../../htm@3.1.1/preact__784fb815.mjs";export*from"../../../preact@10.29.2__784fb815.mjs";import{useState as o,useRef as a,useCallback as f,useContext as m,useEffect as l,useDebugValue as c,useErrorBoundary as d,useLayoutEffect as p,useId as x,useMemo as n,useReducer as E,useImperativeHandle as b}from"../../../preact@10.29.2/hooks__784fb815.mjs";export{r as html,f as useCallback,m as useContext,c as useDebugValue,l as useEffect,d as useErrorBoundary,x as useId,b as useImperativeHandle,p as useLayoutEffect,n as useMemo,E as useReducer,a as useRef,o as useState};
-//# sourceMappingURL=diagram-js-ui.mjs.map

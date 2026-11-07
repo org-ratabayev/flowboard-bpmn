@@ -129,8 +129,8 @@ browser ──HTTP/SSE──▶ server (createServer)
 | Lint/format | `eslint` or `oxlint`, `prettier` or `oxfmt` |
 | Frontend build | `vite` (+ `vite-plugin-singlefile` for mcp-apps) |
 
-Vendored browser libraries in `public/vendor/` may stay vendored (the license audit script keeps working) or move to
-npm dependencies bundled by Vite. Decide in Phase 1; either way keep `THIRD_PARTY_LICENSES.md` generated.
+Browser libraries are npm dependencies of `packages/web`, bundled by Vite (decided in Phase 1; the earlier vendored
+copies in `public/vendor/` were removed). `THIRD_PARTY_LICENSES.md` is generated from the installed packages.
 
 ## 4. Extension points
 

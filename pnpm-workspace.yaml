@@ -6,3 +6,7 @@ registry: https://registry.npmjs.org/
 
 # Only install versions published at least 14 days ago (in minutes).
 minimumReleaseAge: 20160
+# Exact versions already in use before this rule existed; remove once they are 14 days old (after 2026-11-13).
+minimumReleaseAgeExclude:
+  - '@bpmn-io/properties-panel@3.58.1'
+  - '@bpmn-io/feel-editor@2.8.1'

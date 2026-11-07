@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/RemoveEmbeddedLabelBoundsBehavior */
-import u from"../../../../../../../inherits-browser@0.1.0__784fb815.mjs";import r from"../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/command/CommandInterceptor.mjs";import{getDi as m}from"../../../util/ModelUtil.mjs";function t(d,n){r.call(this,d),this.preExecute("shape.resize",function(a){var o=a.shape,i=m(o),e=i&&i.get("label"),s=e&&e.get("bounds");s&&n.updateModdleProperties(o,e,{bounds:void 0})},!0)}u(t,r);t.$inject=["eventBus","modeling"];export{t as default};
-//# sourceMappingURL=RemoveEmbeddedLabelBoundsBehavior.mjs.map
