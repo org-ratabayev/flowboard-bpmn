@@ -32,7 +32,7 @@ export async function startServer(env = {}) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bpmn-test-'));
   const dataDir = path.join(tmp, 'data');
   const port = await freePort();
-  const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node server.js').split(' ');
+  const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node apps/standalone/src/main.ts').split(' ');
   const child = spawn(cmd, args, {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],

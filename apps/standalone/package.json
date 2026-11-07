@@ -1,0 +1,13 @@
+{
+  "name": "@flowboard/standalone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runs the BPMN editor server with settings from .env and the environment",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts"
+  },
+  "dependencies": {
+    "@flowboard/server": "workspace:*"
+  }
+}

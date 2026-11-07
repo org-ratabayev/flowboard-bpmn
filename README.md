@@ -1,14 +1,19 @@
 # Local BPMN editor
 
 bpmn.io (bpmn-js 18.31.0) with saved projects, full version history and shareable links.
-No dependencies to install: the server uses only Node built-ins, and all browser code is vendored in `public/vendor/`.
+The server is written in TypeScript and runs directly on Node (no build step); all browser code is vendored in
+`public/vendor/`.
 
 ## Run
 
+Requires Node.js 22.18 or newer. Dependencies are installed with pnpm, which Node ships through Corepack:
+
 ```sh
-npm start                      # or: node server.js
-PORT=8080 npm start            # different port
-BPMN_DIR=~/somewhere npm start # different storage folder
+corepack enable                 # once, makes `pnpm` available
+pnpm install
+pnpm start
+PORT=8080 pnpm start            # different port
+BPMN_DIR=~/somewhere pnpm start # different storage folder
 ```
 
 Open http://localhost:3000. The startup log also prints your network address(es) for sharing on the LAN.
@@ -16,16 +21,34 @@ Open http://localhost:3000. The startup log also prints your network address(es)
 For machine-specific settings (storage folder, port, chat options), copy `.env.example` to `.env` and edit it.
 `.env` is git-ignored; variables set in the environment override it.
 
+Settings can also come from a JavaScript module named by `APP_CONFIG`, whose default export is a configuration object
+(see `packages/server/src/config.ts` for all keys). Priority, highest first: environment variables, the `APP_CONFIG`
+module, built-in defaults.
+
+## Code layout
+
+| Path | What |
+|---|---|
+| `packages/server/` | The server as a library: `createServer(config)`, config loading, storage, live collaboration, chat |
+| `apps/standalone/` | The default entry point (`pnpm start`): reads `.env`, the environment and `APP_CONFIG` |
+| `public/` | The browser app (bpmn-js and plugins, vendored) |
+| `test/` | Black-box HTTP tests |
+
 ## Tests
 
 ```sh
-npm test
+pnpm test        # unit tests, then the HTTP API tests
+pnpm typecheck
 ```
 
-The tests in `test/` check the HTTP API from the outside: each test file starts the server as a separate process with
-a temporary storage folder and a fake Claude CLI (`test/fixtures/fake-claude.mjs`), so they never touch your projects
-or call Claude. They use Node's built-in test runner, so nothing needs to be installed. `TEST_SERVER_CMD` runs the same
-tests against a different server command, e.g. `TEST_SERVER_CMD="node other/server.js" npm test`.
+- `pnpm test:unit` runs vitest on the `*.test.ts` files next to the code.
+- `pnpm test:api` runs the tests in `test/`, which check the HTTP API from the outside: each test file starts the
+  server as a separate process with a temporary storage folder and a fake Claude CLI (`test/fixtures/fake-claude.mjs`),
+  so they never touch your projects or call Claude. `TEST_SERVER_CMD` runs them against a different server command,
+  e.g. `TEST_SERVER_CMD="node other/server.js" pnpm test:api`.
+
+New dependencies must be published at least 14 days before they are installed (`minimumReleaseAge` in
+`pnpm-workspace.yaml`).
 
 ## Storage
 
@@ -91,7 +114,8 @@ tools, confined to the chat folder (`--restricted`); no shell, web access, MCP s
 | `CLAUDE_MODEL` | CLI default | e.g. `sonnet`, `opus` |
 | `CHAT_TIMEOUT_MS` | 300000 | per-message timeout |
 
-The provider lives in `providers/claude-code.js` (`run({ cwd, prompt, systemPrompt, sessionId })`), so other LLM
+The provider lives in `packages/server/src/chat/claudeCode.ts` and implements the `ChatProvider` interface
+(`run({ cwd, prompt, systemPrompt, sessionId })`, see `packages/server/src/chat/types.ts`), so other LLM
 providers can be added next to it later.
 
 ## Plugins and upgrading
