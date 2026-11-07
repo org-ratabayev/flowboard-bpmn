@@ -4,6 +4,14 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type BpmnServer } from './index.ts';
 
+/** Signs in (dev auth) and returns a fetch that sends the session cookie and the Origin header. */
+async function signedIn(base: string, name = 'Tester') {
+  const res = await fetch(`${base}/auth/dev/login`, { method: 'POST', headers: { Origin: base }, body: JSON.stringify({ name }) });
+  const cookie = res.headers.get('set-cookie')!.split(';')[0];
+  return (urlPath: string, init: RequestInit = {}) =>
+    fetch(base + urlPath, { ...init, headers: { Origin: base, Cookie: cookie, ...init.headers } });
+}
+
 describe('createServer', () => {
   let dir: string;
   let server: BpmnServer;
@@ -30,11 +38,12 @@ describe('createServer', () => {
     const { port } = await server.listen();
     expect(port).toBeGreaterThan(0);
     const base = `http://127.0.0.1:${port}`;
+    const call = await signedIn(base);
 
-    const created = await fetch(`${base}/api/projects`, { method: 'POST', body: JSON.stringify({ name: 'In process' }) });
+    const created = await call('/api/projects', { method: 'POST', body: JSON.stringify({ name: 'In process' }) });
     expect(created.status).toBe(201);
     expect(await created.json()).toEqual({ id: 'in-process' });
-    expect(await (await fetch(`${base}/`)).text()).toContain('<title>test</title>');
+    expect(await (await call('/')).text()).toContain('<title>test</title>');
     expect((await fetch(`${base}/licenses`)).status).toBe(404);
   });
 
@@ -42,17 +51,16 @@ describe('createServer', () => {
     const other = createServer({ ...server.config, port: 0 });
     try {
       const [a, b] = await Promise.all([server.listen(), other.listen()]);
-      await fetch(`http://127.0.0.1:${a.port}/api/projects`, { method: 'POST', body: '{}' });
+      const callA = await signedIn(`http://127.0.0.1:${a.port}`);
+      const callB = await signedIn(`http://127.0.0.1:${b.port}`);
+      await callA('/api/projects', { method: 'POST', body: '{}' });
       const stream = new AbortController();
-      const res = await fetch(`http://127.0.0.1:${a.port}/api/projects/untitled-diagram/live?client=client-0001`, { signal: stream.signal });
+      const res = await callA('/api/projects/untitled-diagram/live?client=client-0001', { signal: stream.signal });
       expect(res.status).toBe(200);
 
-      const post = (port: number) => fetch(`http://127.0.0.1:${port}/api/projects/untitled-diagram/live`, {
-        method: 'POST',
-        body: JSON.stringify({ client: 'client-0001', type: 'cursor', cursor: { x: 1, y: 1 } })
-      });
-      expect((await post(a.port)).status).toBe(200);
-      expect((await post(b.port)).status).toBe(404);
+      const body = JSON.stringify({ client: 'client-0001', type: 'cursor', cursor: { x: 1, y: 1 } });
+      expect((await callA('/api/projects/untitled-diagram/live', { method: 'POST', body })).status).toBe(200);
+      expect((await callB('/api/projects/untitled-diagram/live', { method: 'POST', body })).status).toBe(404);
       stream.abort();
     } finally {
       await other.close();
@@ -61,8 +69,9 @@ describe('createServer', () => {
 
   it('closes open live streams on close()', async () => {
     const { port } = await server.listen();
-    await fetch(`http://127.0.0.1:${port}/api/projects`, { method: 'POST', body: '{}' });
-    const res = await fetch(`http://127.0.0.1:${port}/api/projects/untitled-diagram/live?client=client-0002`);
+    const call = await signedIn(`http://127.0.0.1:${port}`);
+    await call('/api/projects', { method: 'POST', body: '{}' });
+    const res = await call('/api/projects/untitled-diagram/live?client=client-0002');
     const reader = res.body!.getReader();
     await reader.read();
     await server.close();

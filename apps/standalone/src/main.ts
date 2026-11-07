@@ -42,6 +42,15 @@ for (const addrs of Object.values(os.networkInterfaces())) {
   }
 }
 
-const shutdown = () => server.close().then(() => process.exit(0), () => process.exit(1));
+const loopback = ['127.0.0.1', '::1', 'localhost'].includes(config.host);
+if (config.auth.kind === 'dev' && !loopback) {
+  console.warn(
+    '\n  WARNING: sign-in is in dev mode (a name, no password) and the server accepts connections from the network.\n' +
+    '  Anyone who can reach it can sign in as anyone. Use HOST=127.0.0.1, or AUTH=trusted-headers behind an\n' +
+    '  authenticating proxy, before exposing it beyond a trusted network.\n'
+  );
+}
+
+const shutdown =() => server.close().then(() => process.exit(0), () => process.exit(1));
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

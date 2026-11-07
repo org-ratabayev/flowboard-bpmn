@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · BPMN</title>
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <div class="page login">
+    <h1>Sign in</h1>
+    <p class="sub">Enter the name others will see on the board and in the history.</p>
+    <form class="actions" id="form">
+      <input type="text" id="name" placeholder="Your name" autocomplete="name" maxlength="40" required autofocus>
+      <button class="primary" type="submit">Continue</button>
+    </form>
+    <p class="error" id="error" hidden></p>
+    <p class="footer">No password: anyone who can reach this server can sign in with any name.</p>
+  </div>
+  <script type="module" src="/src/login.mjs"></script>
+</body>
+</html>

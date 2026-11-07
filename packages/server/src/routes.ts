@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Auth, Identity } from './auth/index.ts';
 import { looksLikeBpmn } from './bpmn.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
@@ -12,6 +13,9 @@ export interface ApiContext {
   store: DocumentStore;
   live: LiveHub;
   chat: ReturnType<typeof createChatService> | null;
+  /** The signed-in user making the request. */
+  identity: Identity;
+  auth: Pick<Auth, 'kind' | 'canLogout'>;
 }
 
 /** Handles /api/projects/…; `parts` is the decoded path split at slashes. */
@@ -22,8 +26,11 @@ export async function handleApi(
   parts: string[],
   url: URL
 ): Promise<void> {
-  const { store, live } = ctx;
+  const { store, live, identity } = ctx;
   const [, resource, id, sub, subId] = parts;
+  if (resource === 'me' && parts.length === 2 && req.method === 'GET') {
+    return send(res, 200, { id: identity.id, name: identity.name, email: identity.email, provider: identity.provider, canLogout: ctx.auth.canLogout });
+  }
   if (resource !== 'projects') return send(res, 404, { error: 'Not found' });
 
   if (!id) {
@@ -31,7 +38,7 @@ export async function handleApi(
     if (req.method === 'POST') {
       const body = await readJson(req, MAX_BODY);
       if (body.xml && !looksLikeBpmn(body.xml)) return send(res, 400, { error: 'Not a BPMN file' });
-      const newId = await store.createProject(String(body.name || 'Untitled diagram').trim().slice(0, 200), body.xml, body.author);
+      const newId = await store.createProject(String(body.name || 'Untitled diagram').trim().slice(0, 200), body.xml, identity.name, identity.id);
       return send(res, 201, { id: newId });
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -57,14 +64,15 @@ export async function handleApi(
       const body = await readJson(req, MAX_BODY);
       if (!looksLikeBpmn(body.xml)) return send(res, 400, { error: 'Not a BPMN diagram' });
       const result = await store.saveVersion(id, body.xml, {
-        author: body.author,
+        author: identity.name,
+        authorId: identity.id,
         note: body.note,
         baseVersion: body.baseVersion,
         force: !!body.force
       });
       if ('conflict' in result) return send(res, 409, { error: 'conflict', latest: result.conflict });
       const { saved } = result;
-      const rev = live.onSaved(id, { xml: body.xml, version: saved.version, author: body.author, clientId: body.client });
+      const rev = live.onSaved(id, { xml: body.xml, version: saved.version, author: identity.name, clientId: body.client });
       return send(res, 200, { ...saved, rev });
     }
     if (req.method === 'PATCH') {
@@ -76,7 +84,7 @@ export async function handleApi(
   }
 
   if (sub === 'live') {
-    if (req.method === 'GET') return live.handleStream(req, res, id, url);
+    if (req.method === 'GET') return live.handleStream(req, res, id, url, identity.name);
     if (req.method === 'POST') {
       const result = live.handlePost(id, await readJson(req, MAX_BODY));
       return send(res, result.status, result.body);

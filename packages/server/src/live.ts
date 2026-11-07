@@ -97,7 +97,8 @@ export function createLiveHub() {
 
   return {
     /** GET …/live: open the event stream for one browser tab. */
-    handleStream(req: IncomingMessage, res: ServerResponse, projectId: string, url: URL): void {
+    /** `name` is the signed-in user's display name, shown to the others. */
+    handleStream(req: IncomingMessage, res: ServerResponse, projectId: string, url: URL, name: string): void {
       const id = url.searchParams.get('client') || '';
       if (!CLIENT_ID_RE.test(id)) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
@@ -119,7 +120,7 @@ export function createLiveHub() {
       const client: Client = {
         id,
         res,
-        name: cleanName(url.searchParams.get('name')) || previous?.name || `Guest ${++room.guests}`,
+        name: cleanName(name) || `Guest ${++room.guests}`,
         color: previous?.color || pickColor(room),
         cursor: null,
         selection: [],
@@ -165,7 +166,6 @@ export function createLiveHub() {
       }
 
       if (body.type === 'presence') {
-        if ('name' in body) client.name = cleanName(body.name) || client.name;
         if (Array.isArray(body.selection)) client.selection = body.selection.filter((s: unknown) => typeof s === 'string').slice(0, 50);
         if ('viewing' in body) client.viewing = typeof body.viewing === 'string' ? body.viewing : null;
         if ('active' in body) client.active = !!body.active;

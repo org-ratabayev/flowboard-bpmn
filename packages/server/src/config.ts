@@ -6,9 +6,42 @@ import { z } from 'zod';
 const expandHome = (p: string) => p.replace(/^~(?=$|\/)/, os.homedir());
 const absolutePath = z.string().min(1).transform((p) => path.resolve(expandHome(p)));
 
+const origin = z.string().transform((value, ctx) => {
+  try {
+    const parsed = new URL(value);
+    if (['http:', 'https:'].includes(parsed.protocol) && parsed.origin === value.replace(/\/$/, '')) return parsed.origin;
+  } catch { /* reported below */ }
+  ctx.addIssue({ code: 'custom', message: 'must be an http(s) origin such as https://bpmn.example.com' });
+  return z.NEVER;
+});
+
 const baseSchema = z.object({
   port: z.number().int().min(0).max(65535).default(3000),
   host: z.string().min(1).default('0.0.0.0'),
+  /** Public address of the app, e.g. https://bpmn.example.com; used for cookies, CSRF checks and redirects. */
+  publicOrigin: origin.optional(),
+  auth: z
+    .object({
+      /**
+       * dev: sign in with just a name, no password (trusted networks only).
+       * trusted-headers: identity comes from headers set by an authenticating reverse proxy.
+       */
+      kind: z.enum(['dev', 'trusted-headers']).default('dev'),
+      sessionDays: z.number().int().positive().default(30),
+      trustedHeaders: z
+        .object({
+          subjectHeader: z.string().min(1).default('x-forwarded-user'),
+          nameHeader: z.string().min(1).optional(),
+          emailHeader: z.string().min(1).optional(),
+          /** The proxy proves itself with this header and secret ... */
+          proxySecretHeader: z.string().min(1).default('x-proxy-secret'),
+          proxySecret: z.string().min(16).optional(),
+          /** ... or by connecting from one of these addresses / CIDR ranges. */
+          trustedProxies: z.array(z.string().min(1)).default([])
+        })
+        .prefault({})
+    })
+    .prefault({}),
   /** Data folder: holds the SQLite database by default; project folders found here are imported on first start. */
   dataDir: absolutePath.prefault('~/workspace/bpmn-diagrams'),
   storage: z
@@ -48,6 +81,11 @@ export const configSchema = baseSchema
     message: 'storage.postgresUrl (DATABASE_URL) is required for Postgres storage',
     path: ['storage', 'postgresUrl']
   })
+  .refine((c) => c.auth.kind !== 'trusted-headers' || c.auth.trustedHeaders.proxySecret || c.auth.trustedHeaders.trustedProxies.length, {
+    message: 'trusted-headers auth needs a way to verify the proxy: proxySecret (AUTH_PROXY_SECRET) or trustedProxies (AUTH_TRUSTED_PROXIES); ' +
+      'otherwise anyone who reaches the server directly could send any identity',
+    path: ['auth', 'trustedHeaders']
+  })
   .transform((c) => ({
     ...c,
     storage: { ...c.storage, sqlitePath: c.storage.sqlitePath ?? path.join(c.dataDir, 'flowboard.sqlite') }
@@ -81,6 +119,20 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
     port: number('PORT'),
     host: env.HOST || undefined,
     dataDir: env.BPMN_DIR || undefined,
+    publicOrigin: env.PUBLIC_ORIGIN || undefined,
+    auth: {
+      // validated by the schema; an unknown value fails there with a readable message
+      kind: (env.AUTH || undefined) as 'dev' | 'trusted-headers' | undefined,
+      sessionDays: number('SESSION_DAYS'),
+      trustedHeaders: {
+        subjectHeader: env.AUTH_SUBJECT_HEADER?.toLowerCase() || undefined,
+        nameHeader: env.AUTH_NAME_HEADER?.toLowerCase() || undefined,
+        emailHeader: env.AUTH_EMAIL_HEADER?.toLowerCase() || undefined,
+        proxySecretHeader: env.AUTH_PROXY_SECRET_HEADER?.toLowerCase() || undefined,
+        proxySecret: env.AUTH_PROXY_SECRET || undefined,
+        trustedProxies: env.AUTH_TRUSTED_PROXIES ? env.AUTH_TRUSTED_PROXIES.split(',').map((s) => s.trim()).filter(Boolean) : undefined
+      }
+    },
     storage: {
       kind: env.STORAGE === 'sqlite' || env.STORAGE === 'postgres' ? env.STORAGE : env.DATABASE_URL ? 'postgres' : undefined,
       sqlitePath: env.SQLITE_PATH || undefined,

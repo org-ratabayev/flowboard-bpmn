@@ -59,6 +59,51 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         CREATE INDEX documents_updated_at_idx ON documents (updated_at);
       `
     }
+  },
+  {
+    id: '002_users_sessions',
+    sql: {
+      sqlite: `
+        CREATE TABLE users (
+          id           TEXT PRIMARY KEY,
+          provider     TEXT NOT NULL,
+          subject      TEXT NOT NULL,
+          name         TEXT NOT NULL,
+          email        TEXT,
+          created_at   TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          UNIQUE (provider, subject)
+        );
+        CREATE TABLE sessions (
+          token_hash   TEXT PRIMARY KEY,
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at   TEXT NOT NULL,
+          expires_at   TEXT NOT NULL
+        );
+        CREATE INDEX sessions_user_id_idx ON sessions (user_id);
+        ALTER TABLE document_versions ADD COLUMN author_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+      `,
+      postgres: `
+        CREATE TABLE users (
+          id           TEXT PRIMARY KEY,
+          provider     TEXT NOT NULL,
+          subject      TEXT NOT NULL,
+          name         TEXT NOT NULL,
+          email        TEXT,
+          created_at   TIMESTAMPTZ NOT NULL,
+          last_seen_at TIMESTAMPTZ NOT NULL,
+          UNIQUE (provider, subject)
+        );
+        CREATE TABLE sessions (
+          token_hash   TEXT PRIMARY KEY,
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at   TIMESTAMPTZ NOT NULL,
+          expires_at   TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX sessions_user_id_idx ON sessions (user_id);
+        ALTER TABLE document_versions ADD COLUMN author_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+      `
+    }
   }
 ];
 

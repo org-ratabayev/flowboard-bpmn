@@ -93,7 +93,7 @@ The commands use the same settings as the server (`.env`, environment variables)
 - Project list with create and import of existing `.bpmn` files.
 - Save with the button or Ctrl/Cmd+S. Each save is a new history entry.
 - History panel lets you view any version, download it, or restore it (restoring adds a new version; nothing is ever overwritten).
-- "Your name" field is recorded with each save.
+- Every save records who made it (the signed-in user).
 - **Live collaboration** (like Miro): everyone on the same project sees each other's cursors with names, what they
   selected (colored outline), and every change within about a quarter second. Avatars in the top bar show who is on the
   board (green dot = editing, faded = away, dashed = viewing an old version); click one to jump to that person.
@@ -125,7 +125,7 @@ The **Chat** button opens a panel where you can ask Claude to change the diagram
   `AI: <your request>` in the history.
 - It uses your Claude account, and each message costs money (shown under each reply, typically $0.05–0.20).
 
-**Safety:** anyone with the link can use the chat, so the CLI runs locked down: only the Read/Edit/Write/Glob/Grep
+**Safety:** every signed-in user can use the chat, so the CLI runs locked down: only the Read/Edit/Write/Glob/Grep
 tools, confined to the chat folder (`--restricted`); no shell, web access, MCP servers/connectors
 (`--strict-mcp-config`), user hooks or settings; anything needing a permission prompt is denied.
 
@@ -172,9 +172,31 @@ not removed or changed, and stays fully visible and never overlapped by other el
 side panels push the canvas aside (or below it on narrow screens) instead of covering it, and the canvas container is
 isolated (`packages/web/src/styles.css`) so UI drawn inside the canvas stays below the watermark. Keep this in mind for new UI.
 
+## Sign-in
+
+Every page and API call needs a signed-in user; the name is shown to others on the board and recorded with each
+save. Sessions are HttpOnly cookies (only a hash of the token is stored) and last `SESSION_DAYS` (30). Requests that
+change data must come from the app itself (`Origin` check), which blocks cross-site request forgery.
+
+| `AUTH` | How users sign in | Use it |
+|---|---|---|
+| `dev` (default) | Type a name; no password | On your machine or a trusted network. Anyone who can reach the server can sign in as anyone; the server warns at startup when it listens beyond localhost. |
+| `trusted-headers` | A reverse proxy in front of the app signs users in (SSO) and passes the user in headers | Shared deployments. |
+
+For `trusted-headers`, the proxy must prove that the request came through it, otherwise anyone reaching the server
+directly could send any identity. Set at least one of:
+
+- `AUTH_PROXY_SECRET`: a secret (16+ characters) the proxy sends in `AUTH_PROXY_SECRET_HEADER` (default `x-proxy-secret`);
+- `AUTH_TRUSTED_PROXIES`: comma-separated IPs or CIDR ranges the proxy connects from.
+
+The user comes from `AUTH_SUBJECT_HEADER` (default `x-forwarded-user`); the optional `AUTH_NAME_HEADER` and
+`AUTH_EMAIL_HEADER` give the display name and email. Behind any proxy that terminates TLS, set `PUBLIC_ORIGIN`
+(e.g. `https://bpmn.example.com`) so cookies are marked Secure and the `Origin` check uses the public address.
+
 ## Sharing outside your network
 
-There is **no authentication**: anyone with the URL can see all projects and edit them.
+All projects are visible to every signed-in user (per-project sharing comes later). With `AUTH=dev` that means anyone
+who can open the URL, so only share a tunnel with people you trust, or put an authenticating proxy in front.
 
 Easiest option: a Cloudflare quick tunnel (no account needed):
 

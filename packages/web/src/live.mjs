@@ -30,7 +30,7 @@ const STATUS_LABEL = {
   away: 'away'
 };
 
-export function createLive({ api, modeler, avatarsEl, getName, onHello, onDoc, onSaved }) {
+export function createLive({ api, modeler, avatarsEl, onHello, onDoc, onSaved }) {
   const canvas = modeler.get('canvas');
   const overlays = modeler.get('overlays');
   const registry = modeler.get('elementRegistry');
@@ -60,8 +60,7 @@ export function createLive({ api, modeler, avatarsEl, getName, onHello, onDoc, o
   }
 
   function connect() {
-    const name = getName();
-    source = new EventSource(`${api}/live?client=${live.me.id}&name=${encodeURIComponent(name)}`);
+    source = new EventSource(`${api}/live?client=${live.me.id}`); // the server knows who we are
     source.addEventListener('hello', (e) => {
       const data = JSON.parse(e.data);
       const previousRev = live.rev;
@@ -96,7 +95,7 @@ export function createLive({ api, modeler, avatarsEl, getName, onHello, onDoc, o
 
   function sendPresence(extra = {}) {
     const selection = modeler.get('selection').get().map((el) => el.id);
-    post({ type: 'presence', name: getName(), selection, viewing, active: !document.hidden, ...extra });
+    post({ type: 'presence', selection, viewing, active: !document.hidden, ...extra });
   }
 
   function updateParticipants(list) {
@@ -273,7 +272,6 @@ export function createLive({ api, modeler, avatarsEl, getName, onHello, onDoc, o
     viewing = version || null;
     if (live.connected) sendPresence();
   };
-  live.setName = () => { if (live.connected) sendPresence(); };
   live.othersCount = () => live.participants.filter((p) => p.id !== live.me.id).length;
 
   connect();

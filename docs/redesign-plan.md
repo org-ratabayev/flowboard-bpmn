@@ -616,6 +616,14 @@ Tasks:
 Acceptance: with `trusted-headers` or `oidc`, an unauthenticated request to any API route gets `401`; dev mode works
 with `?as=alice` / `?as=bob` in two browser profiles.
 
+Implementation notes (3a done; 3b OIDC and 3c PATs follow):
+- `dev` sign-in is a small page where the user types a name (session cookie), not `?as=`; it replaces the "Your name"
+  field and keeps names on a LAN board. Instead of refusing to start on a non-loopback host, the server prints a
+  warning, so sharing on a trusted LAN keeps working; real protection is `trusted-headers` (and `oidc` in 3b).
+- `trusted-headers` refuses to start without `proxySecret` or `trustedProxies`; with both set, both must match.
+- Pages without a session redirect to `/auth/login?returnTo=…`; API calls answer `401`; assets, `/licenses` and the
+  sign-in page stay public. The CSRF check covers every state-changing `/api` and `/auth` request.
+
 ### Phase 4: Authorization and sharing
 
 Tasks:

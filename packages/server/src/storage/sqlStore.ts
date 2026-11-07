@@ -35,7 +35,10 @@ export interface VersionInfo {
 export type VersionSource = 'editor' | 'restore' | 'import' | 'mcp' | 'ai';
 
 export interface SaveOptions {
+  /** Display name shown in the history. */
   author?: string | null;
+  /** The user who saved (users.id). */
+  authorId?: string | null;
   note?: string | null;
   /** Version the change is based on; the save is refused when it is no longer the latest. */
   baseVersion?: unknown;
@@ -99,7 +102,7 @@ async function insertVersion(
   q: Queryable,
   id: string,
   xml: string,
-  { author, note, source = 'editor' }: SaveOptions
+  { author, authorId, note, source = 'editor' }: SaveOptions
 ): Promise<{ version: string; at: string }> {
   const latest = await latestVersion(q, id);
   const now = new Date();
@@ -110,9 +113,9 @@ async function insertVersion(
     version = `${base}-${n}`;
   }
   await q.run(
-    `INSERT INTO document_versions (document_id, seq, name, xml, author_name, note, size, source, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [id, (latest?.seq ?? 0) + 1, version, xml, author || null, note || null, Buffer.byteLength(xml), source, at]
+    `INSERT INTO document_versions (document_id, seq, name, xml, author_name, author_id, note, size, source, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [id, (latest?.seq ?? 0) + 1, version, xml, author || null, authorId || null, note || null, Buffer.byteLength(xml), source, at]
   );
   await q.run('UPDATE documents SET updated_at = $2 WHERE id = $1', [id, at]);
   return { version, at };
@@ -151,12 +154,12 @@ export function createSqlStore(db: Db) {
       });
     },
 
-    createProject(name: string, xml: string | undefined, author: string | null | undefined): Promise<string> {
+    createProject(name: string, xml: string | undefined, author: string | null | undefined, authorId?: string | null): Promise<string> {
       return db.transaction(async (q) => {
         const id = await freeId(q, slugify(name));
         const now = new Date().toISOString();
         await q.run('INSERT INTO documents (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4)', [id, name || id, now, now]);
-        await insertVersion(q, id, xml || EMPTY_DIAGRAM, { author, note: 'Created' });
+        await insertVersion(q, id, xml || EMPTY_DIAGRAM, { author, authorId, note: 'Created' });
         return id;
       });
     },

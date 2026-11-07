@@ -8,7 +8,10 @@
 </head>
 <body>
   <div class="page">
-    <h1>BPMN projects</h1>
+    <div class="page-head">
+      <h1>BPMN projects</h1>
+      <span class="me" id="me"></span>
+    </div>
     <p class="sub">Anyone with a project link can open, edit and save it. Every save is kept in the project's history.</p>
 
     <div class="actions">
@@ -27,10 +30,6 @@
   <script>
     const listEl = document.getElementById('list');
     const nameEl = document.getElementById('newName');
-
-    function author() {
-      try { return localStorage.getItem('bpmn-author') || ''; } catch { return ''; }
-    }
 
     function toast(msg) {
       const t = document.getElementById('toast');
@@ -74,7 +73,7 @@
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, xml, author: author() })
+        body: JSON.stringify({ name, xml })
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Failed');
@@ -107,5 +106,6 @@
 
     load();
   </script>
+  <script type="module" src="/src/session.mjs"></script>
 </body>
 </html>
