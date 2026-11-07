@@ -26,10 +26,11 @@ export const me = originalFetch('/api/me').then(async (res) => {
 me.then((user) => {
   const el = document.getElementById('me');
   if (!el) return;
-  const name = document.createElement('span');
+  const name = document.createElement('a');
   name.className = 'me-name';
+  name.href = '/settings';
   name.textContent = user.name;
-  name.title = user.email || user.name;
+  name.title = `${user.email || user.name} · Settings`;
   el.append(name);
   if (user.canLogout) {
     const button = document.createElement('button');

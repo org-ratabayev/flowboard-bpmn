@@ -128,6 +128,40 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         );
       `
     }
+  },
+  {
+    // Personal access tokens for API and MCP clients; only a hash of each token is stored.
+    id: '004_access_tokens',
+    sql: {
+      sqlite: `
+        CREATE TABLE access_tokens (
+          id           TEXT PRIMARY KEY,
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name         TEXT NOT NULL,
+          token_hash   TEXT NOT NULL UNIQUE,
+          hint         TEXT NOT NULL,
+          created_at   TEXT NOT NULL,
+          expires_at   TEXT,
+          last_used_at TEXT,
+          revoked_at   TEXT
+        );
+        CREATE INDEX access_tokens_user_id_idx ON access_tokens (user_id);
+      `,
+      postgres: `
+        CREATE TABLE access_tokens (
+          id           TEXT PRIMARY KEY,
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name         TEXT NOT NULL,
+          token_hash   TEXT NOT NULL UNIQUE,
+          hint         TEXT NOT NULL,
+          created_at   TIMESTAMPTZ NOT NULL,
+          expires_at   TIMESTAMPTZ,
+          last_used_at TIMESTAMPTZ,
+          revoked_at   TIMESTAMPTZ
+        );
+        CREATE INDEX access_tokens_user_id_idx ON access_tokens (user_id);
+      `
+    }
   }
 ];
 
