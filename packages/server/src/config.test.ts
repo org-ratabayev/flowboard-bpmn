@@ -22,6 +22,7 @@ describe('parseConfig', () => {
         kind: 'sqlite',
         sqlitePath: path.join(os.homedir(), 'workspace', 'bpmn-diagrams', 'flowboard.sqlite'),
         postgresPoolSize: 10,
+        postgresListen: true,
         importOnFirstStart: true
       },
       chat: {

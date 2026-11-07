@@ -30,7 +30,7 @@ const STATUS_LABEL = {
   away: 'away'
 };
 
-export function createLive({ api, modeler, avatarsEl, onHello, onDoc, onSaved }) {
+export function createLive({ api, modeler, avatarsEl, onHello, onDoc, onSaved, onAccess, onRevoked }) {
   const canvas = modeler.get('canvas');
   const overlays = modeler.get('overlays');
   const registry = modeler.get('elementRegistry');
@@ -65,6 +65,7 @@ export function createLive({ api, modeler, avatarsEl, onHello, onDoc, onSaved })
       const data = JSON.parse(e.data);
       const previousRev = live.rev;
       live.connected = true;
+      if (data.you.role) onAccess?.(data.you.role); // also catches changes missed while disconnected
       live.me = data.you;
       live.rev = data.rev;
       updateParticipants(data.participants);
@@ -80,6 +81,13 @@ export function createLive({ api, modeler, avatarsEl, onHello, onDoc, onSaved })
       const data = JSON.parse(e.data);
       live.rev = data.rev;
       onDoc(data);
+    });
+    // the owner changed our role: the editor adapts without a reload
+    source.addEventListener('access', (e) => onAccess?.(JSON.parse(e.data).role));
+    source.addEventListener('access-revoked', () => {
+      source.close(); // no reconnecting: the project is gone for us
+      live.connected = false;
+      onRevoked?.();
     });
     source.addEventListener('saved', (e) => {
       const data = JSON.parse(e.data);

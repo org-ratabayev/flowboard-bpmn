@@ -65,6 +65,8 @@ const baseSchema = z.object({
       /** Postgres connection string, required when kind is 'postgres'. */
       postgresUrl: z.string().min(1).optional(),
       postgresPoolSize: z.number().int().positive().default(10),
+      /** Listen for access changes made on other server instances (needs one more connection). */
+      postgresListen: z.boolean().default(true),
       /** When the database has no projects yet, import the project folders found in dataDir. */
       importOnFirstStart: z.boolean().default(true)
     })
@@ -162,6 +164,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
       sqlitePath: env.SQLITE_PATH || undefined,
       postgresUrl: env.DATABASE_URL || undefined,
       postgresPoolSize: number('PG_POOL_SIZE'),
+      postgresListen: env.PG_LISTEN ? env.PG_LISTEN !== 'off' : undefined,
       importOnFirstStart: env.IMPORT_ON_FIRST_START ? env.IMPORT_ON_FIRST_START !== 'off' : undefined
     },
     chat: {

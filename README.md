@@ -256,8 +256,14 @@ Every project has an **owner**. New projects are **private**: only their owner s
 - Someone without access gets "Project not found", the same as for a project that does not exist.
 - The project list shows your role on each project and filters *My projects* / *Shared with me*.
 
-Viewers see a *View only* badge; the editor does not save or share their changes. A fully locked editor and
-role changes that apply without reloading the page come next.
+Viewers get a read-only editor (*View only*): no palette, context pad, dragging, text or property editing, undo or
+keyboard edits, but selecting, zooming, the minimap, token simulation, linting, history and exports work.
+
+Access changes apply to open editors at once, without reloading: when the owner raises or lowers someone's role,
+their editor unlocks or locks (a lowered editor with unsaved changes is offered to download them); when access is
+removed (also by revoking a share link or closing general access), their editor is replaced by a notice. With several
+server instances on Postgres, the change reaches every instance through `LISTEN`/`NOTIFY` (this needs one extra
+database connection per instance; `PG_LISTEN=off` disables it).
 
 ## Sharing outside your network
 

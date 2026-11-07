@@ -71,6 +71,16 @@ a.me-name:hover { text-decoration: underline; }
 .page h1 .back { font-size: 14px; font-weight: 400; margin-right: 8px; text-decoration: none; }
 button.danger { border-color: var(--danger); color: var(--danger); }
 
+/* ---------- read-only editor (viewers) ---------- */
+.read-only .djs-palette,
+.read-only .djs-context-pad { display: none !important; }
+#properties.read-only input,
+#properties.read-only textarea,
+#properties.read-only select,
+#properties.read-only [contenteditable],
+#properties.read-only .bio-properties-panel-add-entry,
+#properties.read-only .bio-properties-panel-remove-entry { pointer-events: none; opacity: .65; }
+
 /* ---------- roles and sharing ---------- */
 .role-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eef2f7; color: var(--muted); white-space: nowrap; }
 .role-badge.role-viewer { background: #fff4e5; color: #8a5300; }

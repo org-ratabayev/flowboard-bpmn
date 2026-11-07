@@ -4,6 +4,7 @@ import type { TokenStore } from './auth/tokenStore.ts';
 import { looksLikeBpmn } from './bpmn.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
+import type { AccessEvents } from './events.ts';
 import type { LiveHub } from './live.ts';
 import { atLeast, isGrantRole, isVisibility, normalizeEmail, type AccessStore, type Role } from './storage/accessStore.ts';
 import { isProjectId, isVersionName, type DocumentStore } from './storage/index.ts';
@@ -20,6 +21,8 @@ export interface ApiContext {
   auth: Pick<Auth, 'kind' | 'canLogout'>;
   tokens: TokenStore;
   access: AccessStore;
+  /** Announces access changes so connected people get their new role at once. */
+  events: AccessEvents;
   /** True when the request was authenticated with an access token rather than a browser session. */
   viaToken: boolean;
 }
@@ -63,6 +66,7 @@ async function handleAccess(
       const { visibility } = await readJson(req, 4096);
       if (!isVisibility(visibility)) return send(res, 400, { error: "visibility must be 'private' or 'everyone'" });
       await access.setVisibility(id, visibility, identity.id);
+      await ctx.events.publish(id);
       return send(res, 200, await current());
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -76,11 +80,13 @@ async function handleAccess(
       const result = await access.grant(id, key, newRole, identity.id);
       if (result === 'unknown-user') return send(res, 404, { error: 'User not found' });
       if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
+      await ctx.events.publish(id);
       return send(res, 200, await current());
     }
     if (req.method === 'DELETE') {
       if (key !== identity.id && !allowed('owner')) return;
       if (!(await access.revoke(id, key, identity.id))) return send(res, 404, { error: 'This user has no access to remove' });
+      await ctx.events.publish(id);
       return send(res, 204, '');
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -99,6 +105,7 @@ async function handleAccess(
     }
     if (rest.length === 2 && req.method === 'DELETE') {
       if (!(await access.revokeLink(id, key, identity.id))) return send(res, 404, { error: 'Link not found' });
+      await ctx.events.publish(id);
       return send(res, 204, '');
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -113,6 +120,7 @@ async function handleAccess(
       if (!isGrantRole(body.role)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
       const result = await access.invite(id, email, body.role, identity.id);
       if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
+      if (result === 'granted') await ctx.events.publish(id);
       return send(res, 200, { result, access: await current() });
     }
     if (rest.length === 2 && req.method === 'DELETE') {
@@ -183,6 +191,7 @@ export async function handleApi(
     const result = await ctx.access.joinByLink(String(token ?? ''), identity.id);
     if (result === 'invalid') return send(res, 404, { error: 'This share link is not valid. It may have been revoked.' });
     if (result === 'expired') return send(res, 410, { error: 'This share link has expired. Ask the owner for a new one.' });
+    await ctx.events.publish(result.documentId); // the user's open tabs on the project get the raised role
     return send(res, 200, { projectId: result.documentId, role: result.role });
   }
   if (resource !== 'projects') return send(res, 404, { error: 'Not found' });
@@ -250,7 +259,7 @@ export async function handleApi(
   }
 
   if (sub === 'live') {
-    if (req.method === 'GET') return live.handleStream(req, res, id, url, identity.name);
+    if (req.method === 'GET') return live.handleStream(req, res, id, url, { id: identity.id, name: identity.name, role });
     if (req.method === 'POST') {
       const body = await readJson(req, MAX_BODY);
       // viewers share their cursor and presence, but not diagram changes
