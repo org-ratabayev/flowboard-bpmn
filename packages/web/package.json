@@ -1,0 +1,10 @@
+{
+  "name": "@flowboard/web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser app of the BPMN editor: pages, scripts, styles and vendored bpmn-js plugins",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

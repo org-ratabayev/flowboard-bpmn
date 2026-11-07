@@ -2,7 +2,7 @@
 
 bpmn.io (bpmn-js 18.31.0) with saved projects, full version history and shareable links.
 The server is written in TypeScript and runs directly on Node (no build step); all browser code is vendored in
-`public/vendor/`.
+`packages/web/public/vendor/`.
 
 ## Run
 
@@ -30,8 +30,8 @@ module, built-in defaults.
 | Path | What |
 |---|---|
 | `packages/server/` | The server as a library: `createServer(config)`, config loading, storage, live collaboration, chat |
+| `packages/web/` | The browser app in `public/` (pages, scripts, styles, vendored bpmn-js plugins); exports its `publicDir` |
 | `apps/standalone/` | The default entry point (`pnpm start`): reads `.env`, the environment and `APP_CONFIG` |
-| `public/` | The browser app (bpmn-js and plugins, vendored) |
 | `test/` | Black-box HTTP tests |
 
 ## Tests
@@ -122,18 +122,18 @@ providers can be added next to it later.
 
 | Plugin | Version | Location |
 |---|---|---|
-| bpmn-js | 18.31.0 | `public/vendor/bpmn-js/` (UMD bundle from unpkg) |
-| bpmn-js-color-picker | 0.7.2 | `public/vendor/bpmn-js-color-picker/` (wrapped into a browser script) |
-| bpmn-js-properties-panel (+ @bpmn-io/properties-panel 3.58.1) | 5.65.3 | `public/vendor/esm/raw/` (original files from unpkg, see script comment) |
-| bpmn-js-differ | 3.2.0 | `public/vendor/esm/` |
-| bpmn-js-bpmnlint / bpmnlint | 0.25.0 / 12.0.0 | `public/vendor/esm/`, rules packed in `public/js/lint-config.mjs` |
-| bpmn-js-token-simulation | 1.1.0 | `public/vendor/esm/` |
-| diagram-js-minimap | 5.6.0 | `public/vendor/esm/` |
-| bpmn-auto-layout | 1.3.0 | `public/vendor/esm/` |
+| bpmn-js | 18.31.0 | `packages/web/public/vendor/bpmn-js/` (UMD bundle from unpkg) |
+| bpmn-js-color-picker | 0.7.2 | `packages/web/public/vendor/bpmn-js-color-picker/` (wrapped into a browser script) |
+| bpmn-js-properties-panel (+ @bpmn-io/properties-panel 3.58.1) | 5.65.3 | `packages/web/public/vendor/esm/raw/` (original files from unpkg, see script comment) |
+| bpmn-js-differ | 3.2.0 | `packages/web/public/vendor/esm/` |
+| bpmn-js-bpmnlint / bpmnlint | 0.25.0 / 12.0.0 | `packages/web/public/vendor/esm/`, rules packed in `packages/web/public/js/lint-config.mjs` |
+| bpmn-js-token-simulation | 1.1.0 | `packages/web/public/vendor/esm/` |
+| diagram-js-minimap | 5.6.0 | `packages/web/public/vendor/esm/` |
+| bpmn-auto-layout | 1.3.0 | `packages/web/public/vendor/esm/` |
 
 The ES-module plugins are fetched pre-bundled from esm.sh by `scripts/vendor-plugins.py`, so no npm install is
 needed. To upgrade, bump the versions in that script and run `python3 scripts/vendor-plugins.py`.
-If you change `LINT_RULES`, regenerate `public/js/lint-config.mjs` accordingly.
+If you change `LINT_RULES`, regenerate `packages/web/public/js/lint-config.mjs` accordingly.
 
 ## Licenses
 
@@ -147,7 +147,7 @@ in sync with `scripts/vendor-plugins.py`.
 **bpmn.io watermark:** the bpmn.io license requires that the "powered by bpmn.io" watermark in the canvas corner is
 not removed or changed, and stays fully visible and never overlapped by other elements. The layout keeps it that way:
 side panels push the canvas aside (or below it on narrow screens) instead of covering it, and the canvas container is
-isolated (`public/styles.css`) so UI drawn inside the canvas stays below the watermark. Keep this in mind for new UI.
+isolated (`packages/web/public/styles.css`) so UI drawn inside the canvas stays below the watermark. Keep this in mind for new UI.
 
 ## Sharing outside your network
 
