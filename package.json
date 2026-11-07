@@ -4,6 +4,7 @@
   "private": true,
   "description": "Local bpmn.io editor with file-based projects and version history",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/*.test.mjs"
   }
 }

@@ -573,8 +573,9 @@ Tasks:
 2. Port `server.js`, `live.js`, `providers/claude-code.js` to TypeScript in `packages/server`, keeping the file
    storage and every current endpoint unchanged. Expose `createServer(config)`.
 3. Move `public/` to `packages/web`; build with Vite (or serve as-is first; bundling can follow).
-4. Add vitest + supertest; write characterization tests for the current API (projects, history, live, chat with a
-   fake provider) **before** porting, run them against both the old and the new server.
+4. Before porting, write characterization tests for the current API (projects, history, live, chat with a fake
+   CLI). They are black-box HTTP tests (`node:test`, in `test/`) that start the server as a separate process, so they
+   run unchanged against the old and the new server (`TEST_SERVER_CMD`). Unit tests for new code use vitest.
 5. Config loader with zod (4.1); document every new setting in `.env.example`.
 
 Acceptance: all characterization tests pass against the new server; the UI works as before; `pnpm start` runs.
