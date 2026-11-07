@@ -181,7 +181,28 @@ change data must come from the app itself (`Origin` check), which blocks cross-s
 | `AUTH` | How users sign in | Use it |
 |---|---|---|
 | `dev` (default) | Type a name; no password | On your machine or a trusted network. Anyone who can reach the server can sign in as anyone; the server warns at startup when it listens beyond localhost. |
-| `trusted-headers` | A reverse proxy in front of the app signs users in (SSO) and passes the user in headers | Shared deployments. |
+| `trusted-headers` | A reverse proxy in front of the app signs users in (SSO) and passes the user in headers | Shared deployments behind such a proxy. |
+| `oidc` | The app signs users in with an OpenID Connect provider (Google, Microsoft Entra ID, Okta, Keycloak, …) | Shared deployments without such a proxy. |
+
+### OpenID Connect
+
+Register the app with your provider as a web application with the redirect URI `<PUBLIC_ORIGIN>/auth/callback`, then set:
+
+```sh
+AUTH=oidc
+PUBLIC_ORIGIN=https://bpmn.example.com
+OIDC_ISSUER=https://idp.example.com          # its /.well-known/openid-configuration must be reachable
+OIDC_CLIENT_ID=...
+OIDC_CLIENT_SECRET=...                        # omit for a public client
+# OIDC_SCOPES=openid profile email
+# OIDC_ALLOWED_DOMAINS=example.com            # only verified emails of these domains may sign in
+```
+
+Sign-in uses the authorization code flow with PKCE, state and nonce; the ID token is verified before a session
+starts. The provider is contacted on the first sign-in, so the server starts even while it is unreachable. Signing
+out ends the session in this app only, not at the provider.
+
+### Behind a proxy (trusted headers)
 
 For `trusted-headers`, the proxy must prove that the request came through it, otherwise anyone reaching the server
 directly could send any identity. Set at least one of:

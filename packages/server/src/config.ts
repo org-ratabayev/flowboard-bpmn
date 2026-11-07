@@ -25,9 +25,22 @@ const baseSchema = z.object({
       /**
        * dev: sign in with just a name, no password (trusted networks only).
        * trusted-headers: identity comes from headers set by an authenticating reverse proxy.
+       * oidc: sign in with an OpenID Connect provider (authorization code + PKCE).
        */
-      kind: z.enum(['dev', 'trusted-headers']).default('dev'),
+      kind: z.enum(['dev', 'trusted-headers', 'oidc']).default('dev'),
       sessionDays: z.number().int().positive().default(30),
+      oidc: z
+        .object({
+          /** Issuer URL; its /.well-known/openid-configuration is read on the first sign-in. */
+          issuer: z.url().optional(),
+          clientId: z.string().min(1).optional(),
+          /** Omit for a public client (PKCE only). */
+          clientSecret: z.string().min(1).optional(),
+          scopes: z.string().min(1).default('openid profile email'),
+          /** Only users whose verified email is in one of these domains may sign in (empty: everyone). */
+          allowedEmailDomains: z.array(z.string().min(1)).default([])
+        })
+        .prefault({}),
       trustedHeaders: z
         .object({
           subjectHeader: z.string().min(1).default('x-forwarded-user'),
@@ -86,6 +99,10 @@ export const configSchema = baseSchema
       'otherwise anyone who reaches the server directly could send any identity',
     path: ['auth', 'trustedHeaders']
   })
+  .refine((c) => c.auth.kind !== 'oidc' || (c.auth.oidc.issuer && c.auth.oidc.clientId && c.publicOrigin), {
+    message: 'oidc auth needs OIDC_ISSUER, OIDC_CLIENT_ID and PUBLIC_ORIGIN (the callback is <PUBLIC_ORIGIN>/auth/callback)',
+    path: ['auth', 'oidc']
+  })
   .transform((c) => ({
     ...c,
     storage: { ...c.storage, sqlitePath: c.storage.sqlitePath ?? path.join(c.dataDir, 'flowboard.sqlite') }
@@ -122,8 +139,15 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
     publicOrigin: env.PUBLIC_ORIGIN || undefined,
     auth: {
       // validated by the schema; an unknown value fails there with a readable message
-      kind: (env.AUTH || undefined) as 'dev' | 'trusted-headers' | undefined,
+      kind: (env.AUTH || undefined) as 'dev' | 'trusted-headers' | 'oidc' | undefined,
       sessionDays: number('SESSION_DAYS'),
+      oidc: {
+        issuer: env.OIDC_ISSUER || undefined,
+        clientId: env.OIDC_CLIENT_ID || undefined,
+        clientSecret: env.OIDC_CLIENT_SECRET || undefined,
+        scopes: env.OIDC_SCOPES || undefined,
+        allowedEmailDomains: env.OIDC_ALLOWED_DOMAINS ? env.OIDC_ALLOWED_DOMAINS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : undefined
+      },
       trustedHeaders: {
         subjectHeader: env.AUTH_SUBJECT_HEADER?.toLowerCase() || undefined,
         nameHeader: env.AUTH_NAME_HEADER?.toLowerCase() || undefined,

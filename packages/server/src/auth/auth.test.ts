@@ -83,6 +83,19 @@ describe.each(backends)('$name users and sessions', (backend) => {
     expect(await auth.userForSession(old.token)).toBeNull();
   });
 
+  it('hands out a sign-in flow once, and not after it expired', async () => {
+    const flow = { state: 'state-1', codeVerifier: 'verifier', nonce: 'nonce', returnTo: '/p/x' };
+    await auth.startFlow(flow);
+    expect(await auth.takeFlow('state-2')).toBeNull();
+    expect(await auth.takeFlow('state-1')).toEqual(flow);
+    expect(await auth.takeFlow('state-1')).toBeNull();
+
+    await auth.startFlow({ ...flow, state: 'old' }, -1);
+    expect(await auth.takeFlow('old')).toBeNull();
+    const rows = await db.read((q) => q.all<{ state_hash: string }>('SELECT state_hash FROM auth_flows'));
+    expect(rows).toEqual([]);
+  });
+
   it('stores only a hash of the session token', async () => {
     const user = await auth.upsertUser({ provider: 'dev', subject: 'cy', name: 'Cy', email: null });
     const { token } = await auth.createSession(user.id, 1);

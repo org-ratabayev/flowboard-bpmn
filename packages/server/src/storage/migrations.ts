@@ -104,6 +104,30 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         ALTER TABLE document_versions ADD COLUMN author_id TEXT REFERENCES users(id) ON DELETE SET NULL;
       `
     }
+  },
+  {
+    // One-time state of a sign-in with an external provider, between the redirect and the callback.
+    id: '003_auth_flows',
+    sql: {
+      sqlite: `
+        CREATE TABLE auth_flows (
+          state_hash    TEXT PRIMARY KEY,
+          code_verifier TEXT NOT NULL,
+          nonce         TEXT NOT NULL,
+          return_to     TEXT NOT NULL,
+          expires_at    TEXT NOT NULL
+        );
+      `,
+      postgres: `
+        CREATE TABLE auth_flows (
+          state_hash    TEXT PRIMARY KEY,
+          code_verifier TEXT NOT NULL,
+          nonce         TEXT NOT NULL,
+          return_to     TEXT NOT NULL,
+          expires_at    TIMESTAMPTZ NOT NULL
+        );
+      `
+    }
   }
 ];
 

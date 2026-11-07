@@ -15,6 +15,7 @@ describe('parseConfig', () => {
       auth: {
         kind: 'dev',
         sessionDays: 30,
+        oidc: { scopes: 'openid profile email', allowedEmailDomains: [] },
         trustedHeaders: { subjectHeader: 'x-forwarded-user', proxySecretHeader: 'x-proxy-secret', trustedProxies: [] }
       },
       storage: {
@@ -61,7 +62,7 @@ describe('configFromEnv', () => {
       port: 8080,
       host: '127.0.0.1',
       dataDir: '/data',
-      auth: { trustedHeaders: {} },
+      auth: { oidc: {}, trustedHeaders: {} },
       storage: { kind: undefined, sqlitePath: undefined, postgresUrl: undefined, postgresPoolSize: undefined, importOnFirstStart: undefined },
       chat: { enabled: false, claudeCode: { bin: '/bin/claude', model: 'sonnet', timeoutMs: 1000 } }
     });
@@ -76,7 +77,7 @@ describe('configFromEnv', () => {
 
   it('leaves unset and empty variables out', () => {
     const merged = mergeConfig(configFromEnv({ CLAUDE_MODEL: '', CHAT: '' }));
-    expect(merged).toEqual({ auth: { trustedHeaders: {} }, storage: {}, chat: { claudeCode: {} } });
+    expect(merged).toEqual({ auth: { oidc: {}, trustedHeaders: {} }, storage: {}, chat: { claudeCode: {} } });
   });
 
   it('maps auth variables', () => {

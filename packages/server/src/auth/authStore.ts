@@ -15,6 +15,14 @@ export interface Identity {
 
 export type ExternalIdentity = Omit<Identity, 'id'>;
 
+export interface AuthFlow {
+  state: string;
+  codeVerifier: string;
+  nonce: string;
+  /** Same-site path to return to after signing in. */
+  returnTo: string;
+}
+
 export type AuthStore = ReturnType<typeof createAuthStore>;
 
 const hash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
@@ -82,7 +90,33 @@ export function createAuthStore(db: Db) {
     },
 
     async deleteExpiredSessions(): Promise<number> {
-      return db.transaction(async (q) => (await q.run('DELETE FROM sessions WHERE expires_at <= $1', [new Date().toISOString()])).changes);
+      return db.transaction(async (q) => {
+        const now = new Date().toISOString();
+        await q.run('DELETE FROM auth_flows WHERE expires_at <= $1', [now]);
+        return (await q.run('DELETE FROM sessions WHERE expires_at <= $1', [now])).changes;
+      });
+    },
+
+    /** Remembers a sign-in started with an external provider until its callback (keyed by a hash of `state`). */
+    async startFlow(flow: AuthFlow, ttlMinutes = 10): Promise<void> {
+      const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+      await db.transaction((q) =>
+        q.run('INSERT INTO auth_flows (state_hash, code_verifier, nonce, return_to, expires_at) VALUES ($1, $2, $3, $4, $5)',
+          [hash(flow.state), flow.codeVerifier, flow.nonce, flow.returnTo, expiresAt])
+      );
+    },
+
+    /** Returns and removes the flow for `state`; null when unknown, already used or expired. */
+    takeFlow(state: string): Promise<AuthFlow | null> {
+      return db.transaction(async (q) => {
+        const row = await q.get<{ code_verifier: string; nonce: string; return_to: string; expires_at: unknown }>(
+          'SELECT code_verifier, nonce, return_to, expires_at FROM auth_flows WHERE state_hash = $1', [hash(state)]
+        );
+        if (!row) return null;
+        await q.run('DELETE FROM auth_flows WHERE state_hash = $1', [hash(state)]);
+        if (toIso(row.expires_at)! <= new Date().toISOString()) return null;
+        return { state, codeVerifier: row.code_verifier, nonce: row.nonce, returnTo: row.return_to };
+      });
     }
   };
 }
