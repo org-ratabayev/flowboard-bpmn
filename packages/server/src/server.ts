@@ -68,7 +68,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         // a token, when sent, is the only credential considered: an invalid one is never rescued by a cookie
         identity = viaToken ? await tokens!.userForToken(bearer!) : await auth!.identify(req);
         if (!identity) {
-          const isPage = req.method === 'GET' && (parts.length === 0 || (parts.length === 1 && parts[0] === 'settings') || (parts[0] === 'p' && parts.length === 2));
+          const isPage = req.method === 'GET' && (parts.length === 0 || (parts.length === 1 && parts[0] === 'settings') || ((parts[0] === 'p' || parts[0] === 's') && parts.length === 2));
           if (isPage) {
             res.writeHead(302, { Location: `/auth/login?returnTo=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
             return res.end();
@@ -81,6 +81,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
       if (parts.length === 0) return await serveStatic(res, path.join(publicDir, 'index.html'));
       if (parts.length === 1 && parts[0] === 'settings') return await serveStatic(res, path.join(publicDir, 'settings.html'));
+      if (parts[0] === 's' && parts.length === 2) return await serveStatic(res, path.join(publicDir, 'join.html'));
       if (parts[0] === 'p' && parts.length === 2) return await serveStatic(res, path.join(publicDir, 'editor.html'));
       if (parts[0] === 'licenses' && parts.length === 1 && config.licensesFile) {
         const text = await fsp.readFile(config.licensesFile, 'utf8');

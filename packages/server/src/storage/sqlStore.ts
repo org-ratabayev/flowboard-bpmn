@@ -2,7 +2,7 @@
 // Ids and version names keep the format of the earlier folder storage, so links stay valid.
 
 import { EMPTY_DIAGRAM } from '../bpmn.ts';
-import { adoptUnowned, ROLE_SQL, type Role, type Visibility } from './accessStore.ts';
+import { adoptUnowned, audit, ROLE_SQL, type Role, type Visibility } from './accessStore.ts';
 import { toIso, type Db, type Queryable } from './db.ts';
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -176,6 +176,7 @@ export function createSqlStore(db: Db) {
         // new projects are private to their creator
         await q.run('INSERT INTO documents (id, name, created_at, updated_at, owner_id) VALUES ($1, $2, $3, $4, $5)', [id, name || id, now, now, authorId || null]);
         await insertVersion(q, id, xml || EMPTY_DIAGRAM, { author, authorId, note: 'Created' });
+        await audit(q, { documentId: id, actorId: authorId || null, action: 'project.create', details: { name: name || id } });
         return id;
       });
     },

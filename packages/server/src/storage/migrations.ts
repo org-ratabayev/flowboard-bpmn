@@ -199,6 +199,81 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         CREATE INDEX document_grants_user_id_idx ON document_grants (user_id);
       `
     }
+  },
+  {
+    // Share links (people who open one join with its role; revoking it removes them again),
+    // invitations by email for people who have not signed in yet, and a log of access changes.
+    id: '006_links_invites_audit',
+    sql: {
+      sqlite: `
+        CREATE TABLE share_links (
+          id          TEXT PRIMARY KEY,
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          token_hash  TEXT NOT NULL UNIQUE,
+          role        TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+          created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TEXT NOT NULL,
+          expires_at  TEXT,
+          revoked_at  TEXT
+        );
+        CREATE INDEX share_links_document_id_idx ON share_links (document_id);
+        ALTER TABLE document_grants ADD COLUMN link_id TEXT REFERENCES share_links(id) ON DELETE SET NULL;
+        CREATE TABLE pending_grants (
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          email       TEXT NOT NULL,
+          role        TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+          granted_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TEXT NOT NULL,
+          PRIMARY KEY (document_id, email)
+        );
+        CREATE INDEX pending_grants_email_idx ON pending_grants (email);
+        CREATE TABLE audit_log (
+          id          TEXT PRIMARY KEY,
+          document_id TEXT,
+          actor_id    TEXT,
+          action      TEXT NOT NULL,
+          details     TEXT NOT NULL,
+          created_at  TEXT NOT NULL
+        );
+        CREATE INDEX audit_log_document_idx ON audit_log (document_id, created_at);
+        CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO app_settings (key, value) SELECT 'first_user_id', id FROM users ORDER BY created_at, id LIMIT 1;
+      `,
+      postgres: `
+        CREATE TABLE share_links (
+          id          TEXT PRIMARY KEY,
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          token_hash  TEXT NOT NULL UNIQUE,
+          role        TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+          created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TIMESTAMPTZ NOT NULL,
+          expires_at  TIMESTAMPTZ,
+          revoked_at  TIMESTAMPTZ
+        );
+        CREATE INDEX share_links_document_id_idx ON share_links (document_id);
+        ALTER TABLE document_grants ADD COLUMN link_id TEXT REFERENCES share_links(id) ON DELETE SET NULL;
+        CREATE TABLE pending_grants (
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          email       TEXT NOT NULL,
+          role        TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+          granted_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (document_id, email)
+        );
+        CREATE INDEX pending_grants_email_idx ON pending_grants (email);
+        CREATE TABLE audit_log (
+          id          TEXT PRIMARY KEY,
+          document_id TEXT,
+          actor_id    TEXT,
+          action      TEXT NOT NULL,
+          details     TEXT NOT NULL,
+          created_at  TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX audit_log_document_idx ON audit_log (document_id, created_at);
+        CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO app_settings (key, value) SELECT 'first_user_id', id FROM users ORDER BY created_at, id LIMIT 1;
+      `
+    }
   }
 ];
 

@@ -96,6 +96,21 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 .share-people .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .share-people .role { color: var(--muted); font-size: 13px; }
 .share-visibility label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.share-people .tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #eef2f7; margin-left: 6px; color: var(--muted); }
+.share-links, .share-log { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 10px; }
+.share-links h3 { font-size: 14px; margin: 0 0 2px; }
+.share-links .sub { font-size: 12px; margin: 0 0 8px; }
+.share-link-new { display: flex; gap: 8px; flex-wrap: wrap; }
+.share-link-created { margin-top: 8px; }
+.share-link-created input { flex: 1; font-family: ui-monospace, monospace; font-size: 12px; }
+.share-link-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.share-link-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.share-link-list .who { flex: 1; }
+.share-link-list small { display: block; color: var(--muted); }
+.share-log summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.share-log ul { list-style: none; padding: 0; margin: 8px 0 0; max-height: 200px; overflow: auto; font-size: 13px; }
+.share-log li { padding: 3px 0; }
+.share-log small { color: var(--muted); margin-left: 4px; }
 .new-token { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
 .new-token input { font-family: ui-monospace, monospace; }
 .new-token pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; color: var(--muted); margin: 0; }

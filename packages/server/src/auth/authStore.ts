@@ -1,7 +1,7 @@
 // Users and browser sessions. Session tokens are random; only their SHA-256 hash is stored.
 
 import crypto from 'node:crypto';
-import { adoptUnowned } from '../storage/accessStore.ts';
+import { acceptInvites, adoptUnowned, rememberFirstUser } from '../storage/accessStore.ts';
 import { toIso, type Db } from '../storage/db.ts';
 
 export interface Identity {
@@ -47,6 +47,7 @@ export function createAuthStore(db: Db) {
         const row = await q.get<UserRow>('SELECT id, provider, subject, name, email FROM users WHERE provider = $1 AND subject = $2', [ext.provider, ext.subject]);
         if (row) {
           await q.run('UPDATE users SET name = $2, email = $3, last_seen_at = $4 WHERE id = $1', [row.id, ext.name, ext.email ?? null, now]);
+          await acceptInvites(q, { id: row.id, email: ext.email ?? null });
           return toIdentity({ ...row, name: ext.name, email: ext.email ?? null });
         }
         const id = crypto.randomUUID();
@@ -55,7 +56,10 @@ export function createAuthStore(db: Db) {
           [id, ext.provider, ext.subject, ext.name, ext.email ?? null, now]
         );
         // projects that existed before anyone signed in belong to the first user
+        await rememberFirstUser(q, id);
         await adoptUnowned(q);
+        // invitations sent to this email before the user ever signed in
+        await acceptInvites(q, { id, email: ext.email ?? null });
         return { id, ...ext, email: ext.email ?? null };
       });
     },

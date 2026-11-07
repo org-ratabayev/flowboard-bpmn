@@ -106,11 +106,40 @@ describe.each(backends)('$name store', (backend) => {
     expect(await access.roleOf(first.id, 'before-users')).toBe('owner'); // adopted when the first user appeared
     const second = await auth.upsertUser({ provider: 'dev', subject: 'second', name: 'Second', email: null });
     expect(await access.roleOf(second.id, 'before-users')).toBe('none');
+    // "first" is the user recorded first, not whoever has the smallest timestamp (ties, clock changes)
+    await store.db.transaction((q) => q.run('UPDATE users SET created_at = $2 WHERE id = $1', [second.id, '2000-01-01T00:00:00.000Z']));
 
     await store.importProject({ id: 'later', name: 'Later', createdAt: null, importKey: 'folder:later', versions: [] });
     expect(await access.roleOf(first.id, 'later')).toBe('owner');
     expect(await store.listProjects(second.id)).toEqual([]);
     expect((await store.listProjects()).map((p) => p.id).sort()).toEqual(['before-users', 'later']);
+  });
+
+  it('stops new joins through an expired link but keeps those who joined', async () => {
+    const access = createAccessStore(store.db);
+    const auth = createAuthStore(store.db);
+    const owner = await auth.upsertUser({ provider: 'dev', subject: 'o', name: 'O', email: null });
+    const early = await auth.upsertUser({ provider: 'dev', subject: 'e', name: 'E', email: null });
+    const late = await auth.upsertUser({ provider: 'dev', subject: 'l', name: 'L', email: null });
+    await store.createProject('Expiring', xml('1'), 'O', owner.id);
+    const link = await access.createLink('expiring', 'viewer', 1, owner.id);
+    expect(await access.joinByLink(link.token, early.id)).toEqual({ documentId: 'expiring', role: 'viewer' });
+    await store.db.transaction((q) => q.run('UPDATE share_links SET expires_at = $2 WHERE id = $1', [link.id, '2000-01-01T00:00:00.000Z']));
+    expect(await access.joinByLink(link.token, late.id)).toBe('expired');
+    expect(await access.roleOf(early.id, 'expiring')).toBe('viewer');
+  });
+
+  it('never lowers a role when accepting an invitation', async () => {
+    const access = createAccessStore(store.db);
+    const auth = createAuthStore(store.db);
+    const owner = await auth.upsertUser({ provider: 'dev', subject: 'o', name: 'O', email: null });
+    const user = await auth.upsertUser({ provider: 'trusted-headers', subject: 'u', name: 'U', email: null });
+    await store.createProject('Invited', xml('1'), 'O', owner.id);
+    await access.grant('invited', user.id, 'editor', owner.id);
+    expect(await access.invite('invited', 'u@example.com', 'viewer', owner.id)).toBe('invited'); // no user has this email yet
+    await auth.upsertUser({ provider: 'trusted-headers', subject: 'u', name: 'U', email: 'U@example.com' });
+    expect(await access.roleOf(user.id, 'invited')).toBe('editor');
+    expect((await access.access('invited', { forOwner: true })).invites).toEqual([]);
   });
 
   it('imports a project with its history once', async () => {
