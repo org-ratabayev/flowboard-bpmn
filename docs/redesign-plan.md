@@ -623,6 +623,10 @@ Implementation notes (3a done; 3b OIDC and 3c PATs follow):
 - `trusted-headers` refuses to start without `proxySecret` or `trustedProxies`; with both set, both must match.
 - Pages without a session redirect to `/auth/login?returnTo=…`; API calls answer `401`; assets, `/licenses` and the
   sign-in page stay public. The CSRF check covers every state-changing `/api` and `/auth` request.
+- 3b (done): `oidc` with `openid-client` (code + PKCE, state, nonce); the one-time flow state is stored in the
+  database (`auth_flows`) and tied to the browser by a cookie, so it works across instances. Discovery happens on the
+  first sign-in. Optional `allowedEmailDomains`. Upstream access/refresh tokens are not stored yet; that comes with
+  the features that call other services on the user's behalf (chat providers, MCP).
 
 ### Phase 4: Authorization and sharing
 

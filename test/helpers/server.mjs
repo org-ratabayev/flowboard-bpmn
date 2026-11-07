@@ -60,6 +60,8 @@ export async function startServer(env = {}, { files } = {}) {
   const port = await freePort();
   const postgres = process.env.TEST_STORAGE === 'postgres' ? await startPostgres() : null;
   const storageEnv = postgres ? { DATABASE_URL: postgres.url, PG_POOL_SIZE: '1' } : { DATABASE_URL: '', STORAGE: 'sqlite' };
+  // PUBLIC_ORIGIN=self: the server's own address, which is only known here
+  if (env.PUBLIC_ORIGIN === 'self') env = { ...env, PUBLIC_ORIGIN: `http://127.0.0.1:${port}` };
   const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node --disable-warning=ExperimentalWarning apps/standalone/src/main.ts').split(' ');
   const child = spawn(cmd, args, {
     cwd: ROOT,

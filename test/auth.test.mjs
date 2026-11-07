@@ -61,7 +61,8 @@ describe('dev sign-in', () => {
     const cookie = await server.signIn('Leaving');
     assert.equal((await server.anonymous('GET', '/api/me', undefined, { cookie })).status, 200);
     const out = await server.anonymous('POST', '/auth/logout', undefined, { cookie });
-    assert.equal(out.status, 204);
+    assert.equal(out.status, 200);
+    assert.deepEqual(out.body, { redirect: '/auth/login' });
     assert.match(out.headers.get('set-cookie'), /^flowboard_session=; .*Max-Age=0/);
     assert.equal((await server.anonymous('GET', '/api/me', undefined, { cookie })).status, 401);
   });

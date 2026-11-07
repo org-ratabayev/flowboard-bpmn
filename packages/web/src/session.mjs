@@ -35,8 +35,11 @@ me.then((user) => {
     const button = document.createElement('button');
     button.textContent = 'Sign out';
     button.addEventListener('click', async () => {
-      await originalFetch('/auth/logout', { method: 'POST' });
-      signIn();
+      const res = await originalFetch('/auth/logout', { method: 'POST' });
+      const { redirect } = await res.json().catch(() => ({}));
+      // with an external provider, going straight back to sign-in would sign the user in again
+      if (redirect) location.href = redirect;
+      else signIn();
     });
     el.append(button);
   }

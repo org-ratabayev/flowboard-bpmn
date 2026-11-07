@@ -1,17 +1,20 @@
-// Who is making a request. Two ways to sign in:
+// Who is making a request. Three ways to sign in:
 //   dev              a name is enough, no password (trusted networks only); a session cookie follows
 //   trusted-headers  an authenticating reverse proxy sets identity headers on every request
+//   oidc             an OpenID Connect provider (see oidc.ts); a session cookie follows
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import type { Config } from '../config.ts';
 import { readJson, send, serveStatic } from '../http.ts';
 import type { AuthStore, Identity } from './authStore.ts';
-import { addressMatcher, isSecure, parseCookies, serializeCookie, timingSafeEqual } from './requestChecks.ts';
+import { sessionHelpers } from './common.ts';
+import { createOidcAuth } from './oidc.ts';
+import { addressMatcher, timingSafeEqual } from './requestChecks.ts';
 
 export type { Identity } from './authStore.ts';
+export { SESSION_COOKIE } from './common.ts';
 
-export const SESSION_COOKIE = 'flowboard_session';
 const IDENTITY_CACHE_MS = 5 * 60 * 1000;
 
 export interface Auth {
@@ -23,61 +26,48 @@ export interface Auth {
   handle(req: IncomingMessage, res: ServerResponse, parts: string[]): Promise<boolean>;
 }
 
-/** Display name typed at the dev sign-in: no control characters or angle brackets, at most 40 characters. */
+/** Display name: no control characters or angle brackets, single spaces, at most 40 characters. */
 export function cleanDisplayName(name: unknown): string {
   return String(name ?? '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40);
 }
 
 export function createAuth(config: Config, store: AuthStore): Auth {
-  const { auth } = config;
-  const secure = (req: IncomingMessage) => isSecure(req, config.publicOrigin);
+  const session = sessionHelpers(config, store);
+  if (config.auth.kind === 'oidc') return createOidcAuth(config, store, session);
+  if (config.auth.kind === 'trusted-headers') return createTrustedHeadersAuth(config, store);
 
-  async function sessionIdentity(req: IncomingMessage): Promise<Identity | null> {
-    const token = parseCookies(req).get(SESSION_COOKIE);
-    return token ? store.userForSession(token) : null;
-  }
-
-  async function logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const token = parseCookies(req).get(SESSION_COOKIE);
-    if (token) await store.deleteSession(token);
-    res.setHeader('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeSeconds: 0, secure: secure(req) }));
-    send(res, 204, '');
-  }
-
-  if (auth.kind === 'dev') {
-    return {
-      kind: 'dev',
-      canLogout: true,
-      identify: sessionIdentity,
-      async handle(req, res, parts) {
-        const route = `${req.method} /${parts.join('/')}`;
-        if (route === 'GET /auth/login') {
-          await serveStatic(res, path.join(config.publicDir, 'login.html'));
-          return true;
-        }
-        if (route === 'POST /auth/dev/login') {
-          const name = cleanDisplayName((await readJson(req, 4096)).name);
-          if (!name) {
-            send(res, 400, { error: 'Enter your name' });
-            return true;
-          }
-          const user = await store.upsertUser({ provider: 'dev', subject: name.toLowerCase(), name, email: null });
-          const { token } = await store.createSession(user.id, auth.sessionDays);
-          res.setHeader('Set-Cookie', serializeCookie(SESSION_COOKIE, token, { maxAgeSeconds: auth.sessionDays * 86400, secure: secure(req) }));
-          send(res, 200, { id: user.id, name: user.name });
-          return true;
-        }
-        if (route === 'POST /auth/logout') {
-          await logout(req, res);
-          return true;
-        }
-        return false;
+  return {
+    kind: 'dev',
+    canLogout: true,
+    identify: session.identify,
+    async handle(req, res, parts) {
+      const route = `${req.method} /${parts.join('/')}`;
+      if (route === 'GET /auth/login') {
+        await serveStatic(res, path.join(config.publicDir, 'login.html'));
+        return true;
       }
-    };
-  }
+      if (route === 'POST /auth/dev/login') {
+        const name = cleanDisplayName((await readJson(req, 4096)).name);
+        if (!name) {
+          send(res, 400, { error: 'Enter your name' });
+          return true;
+        }
+        const user = await store.upsertUser({ provider: 'dev', subject: name.toLowerCase(), name, email: null });
+        res.setHeader('Set-Cookie', await session.start(req, user.id));
+        send(res, 200, { id: user.id, name: user.name });
+        return true;
+      }
+      if (route === 'POST /auth/logout') {
+        await session.logout(req, res, '/auth/login');
+        return true;
+      }
+      return false;
+    }
+  };
+}
 
-  // trusted-headers
-  const th = auth.trustedHeaders;
+function createTrustedHeadersAuth(config: Config, store: AuthStore): Auth {
+  const th = config.auth.trustedHeaders;
   const fromTrustedAddress = th.trustedProxies.length ? addressMatcher(th.trustedProxies) : null;
   const cache = new Map<string, { identity: Identity; until: number }>();
 
