@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/BaseModeler */
-import l from"../../../../inherits-browser@0.1.0__784fb815.mjs";import{Ids as c}from"../../../../ids@3.0.2__784fb815.mjs";import r from"./BaseViewer.mjs";function i(t){r.call(this,t),this.on("import.parse.complete",function(o){o.error||this._collectIds(o.definitions,o.elementsById)},this),this.on("diagram.destroy",function(){this.get("moddle").ids.clear()},this)}l(i,r);i.prototype._createModdle=function(t){var o=r.prototype._createModdle.call(this,t);return o.ids=new c([32,36,1]),o};i.prototype._collectIds=function(t,o){var s=t.$model,d=s.ids,e;d.clear();for(e in o)d.claim(e,o[e])};export{i as default};
-//# sourceMappingURL=BaseModeler.mjs.map

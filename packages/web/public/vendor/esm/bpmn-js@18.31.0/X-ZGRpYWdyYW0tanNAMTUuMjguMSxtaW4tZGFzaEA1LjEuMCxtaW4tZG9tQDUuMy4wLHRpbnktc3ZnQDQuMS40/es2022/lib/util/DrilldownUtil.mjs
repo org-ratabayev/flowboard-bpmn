@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/util/DrilldownUtil */
-import{getDi as o,is as r}from"./ModelUtil.mjs";var t="_plane";function f(e){var n=e.id;return a(n)}function p(e){var n=e.id;return r(e,"bpmn:SubProcess")?i(n):n}function d(e){return i(e)}function l(e){var n=o(e);return r(n,"bpmndi:BPMNPlane")}function i(e){return e+t}function a(e){return e.replace(new RegExp(t+"$"),"")}export{p as getPlaneIdFromShape,f as getShapeIdFromPlane,l as isPlane,t as planeSuffix,d as toPlaneId};
-//# sourceMappingURL=DrilldownUtil.mjs.map

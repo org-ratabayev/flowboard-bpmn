@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/root-elements/RootElementsBehavior */
-import m from"../../../../../../inherits-browser@0.1.0__784fb815.mjs";import r from"../../command/CommandInterceptor.mjs";function n(e,i){i.invoke(r,this),this.executed(function(o){var t=o.context;t.rootElement?e.setRootElement(t.rootElement):t.rootElement=e.getRootElement()}),this.revert(function(o){var t=o.context;t.rootElement&&e.setRootElement(t.rootElement)})}m(n,r);n.$inject=["canvas","injector"];export{n as default};
-//# sourceMappingURL=RootElementsBehavior.mjs.map

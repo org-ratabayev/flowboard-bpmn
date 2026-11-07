@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/search */
-import r from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/search-pad.mjs";import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/search.mjs";import o from"./search/BpmnSearchProvider.mjs";var a={__depends__:[r,e],__init__:["bpmnSearch"],bpmnSearch:["type",o]};export{a as default};
-//# sourceMappingURL=search.mjs.map

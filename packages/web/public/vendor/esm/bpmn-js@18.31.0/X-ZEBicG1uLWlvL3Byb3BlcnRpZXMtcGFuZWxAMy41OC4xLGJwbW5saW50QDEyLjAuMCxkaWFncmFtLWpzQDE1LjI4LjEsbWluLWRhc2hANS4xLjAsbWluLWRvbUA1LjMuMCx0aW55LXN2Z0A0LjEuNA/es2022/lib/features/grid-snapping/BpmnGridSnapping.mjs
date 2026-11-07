@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/grid-snapping/BpmnGridSnapping */
-import{isAny as e}from"../modeling/util/ModelingUtil.mjs";function i(p){p.on(["create.init","shape.move.init"],function(t){var n=t.context,o=t.shape;e(o,["bpmn:Participant","bpmn:SubProcess","bpmn:TextAnnotation"])&&(n.gridSnappingContext||(n.gridSnappingContext={}),n.gridSnappingContext.snapLocation="top-left")})}i.$inject=["eventBus"];export{i as default};
-//# sourceMappingURL=BpmnGridSnapping.mjs.map

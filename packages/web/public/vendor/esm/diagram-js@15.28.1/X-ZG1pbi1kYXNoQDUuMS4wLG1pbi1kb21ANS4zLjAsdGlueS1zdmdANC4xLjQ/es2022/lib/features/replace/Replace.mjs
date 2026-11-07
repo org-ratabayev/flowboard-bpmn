@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/replace/Replace */
-import{assign as w}from"../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";var p=Math.round;function r(e,i){this._modeling=e,this._eventBus=i}r.$inject=["modeling","eventBus"];r.prototype.replaceElement=function(e,i,n){if(e.waypoints)return null;var c=this._modeling,t=this._eventBus;t.fire("replace.start",{element:e,attrs:i,hints:n});var h=i.width||e.width,u=i.height||e.height,g=i.x||e.x,v=i.y||e.y,f=p(g+h/2),o=p(v+u/2),a=c.replaceShape(e,w({},i,{x:f,y:o,width:h,height:u}),n);return t.fire("replace.end",{element:e,newElement:a,hints:n}),a};export{r as default};
-//# sourceMappingURL=Replace.mjs.map

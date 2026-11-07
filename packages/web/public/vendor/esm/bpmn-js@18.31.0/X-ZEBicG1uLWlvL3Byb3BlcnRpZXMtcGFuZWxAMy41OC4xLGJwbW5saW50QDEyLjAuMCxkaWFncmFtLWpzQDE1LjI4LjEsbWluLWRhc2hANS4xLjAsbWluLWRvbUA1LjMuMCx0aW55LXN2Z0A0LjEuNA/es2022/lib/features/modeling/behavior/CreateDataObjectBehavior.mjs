@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/CreateDataObjectBehavior */
-import s from"../../../../../../../inherits-browser@0.1.0__784fb815.mjs";import c from"../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/command/CommandInterceptor.mjs";import{is as p}from"../../../util/ModelUtil.mjs";function t(i,n){c.call(this,i),this.preExecute("shape.create",function(o){var r=o.context,e=r.shape;if(p(e,"bpmn:DataObjectReference")&&e.type!=="label"){var a=n.create("bpmn:DataObject");a.isCollection=e.businessObject.dataObjectRef?.isCollection||!1,e.businessObject.dataObjectRef=a}})}t.$inject=["eventBus","bpmnFactory"];s(t,c);export{t as default};
-//# sourceMappingURL=CreateDataObjectBehavior.mjs.map

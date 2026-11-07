@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/util/Cursor */
-import{classes as o}from"../../../../../min-dom@5.3.0/X-ZG1pbi1kYXNoQDUuMS4w/es2022/min-dom.mjs";var e=/^djs-cursor-.*$/;function t(s){var r=o(document.body);r.removeMatching(e),s&&r.add("djs-cursor-"+s)}function c(){t(null)}function n(s){var r=o(document.body);return r.has("djs-cursor-"+s)}export{n as has,t as set,c as unset};
-//# sourceMappingURL=Cursor.mjs.map

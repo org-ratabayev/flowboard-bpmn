@@ -9,15 +9,18 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "start": "node apps/standalone/src/main.ts",
-    "test": "vitest run && node --test test/*.test.mjs",
+    "build": "vite build packages/web --logLevel warn",
+    "start": "vite build packages/web --logLevel warn && node apps/standalone/src/main.ts",
+    "test": "vitest run && vite build packages/web --logLevel warn && node --test test/*.test.mjs",
     "test:unit": "vitest run",
-    "test:api": "node --test test/*.test.mjs",
-    "typecheck": "tsc -p tsconfig.json"
+    "test:api": "vite build packages/web --logLevel warn && node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "license-list": "node scripts/license-list.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
     "typescript": "7.0.2",
+    "vite": "8.3.5",
     "vitest": "5.0.5"
   }
 }

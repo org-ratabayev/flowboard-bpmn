@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/label-link */
-import e from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/selection.mjs";import i from"../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/features/outline.mjs";import l from"./label-link/LabelLink.mjs";var n={__depends__:[e,i],__init__:["labelLink"],labelLink:["type",l]};export{n as default};
-//# sourceMappingURL=label-link.mjs.map

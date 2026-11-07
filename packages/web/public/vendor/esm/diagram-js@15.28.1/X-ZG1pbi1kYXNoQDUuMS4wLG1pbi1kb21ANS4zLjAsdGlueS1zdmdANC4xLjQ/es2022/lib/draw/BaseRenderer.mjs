@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/draw/BaseRenderer */
-var s=1e3;function o(e,t){var a=this;t=t||s,e.on(["render.shape","render.connection"],t,function(r,n){var i=r.type,p=n.element,c=n.gfx,h=n.attrs;if(a.canRender(p))return i==="render.shape"?a.drawShape(c,p,h):a.drawConnection(c,p,h)}),e.on(["render.getShapePath","render.getConnectionPath"],t,function(r,n){if(a.canRender(n))return r.type==="render.getShapePath"?a.getShapePath(n):a.getConnectionPath(n)})}o.prototype.canRender=function(e){};o.prototype.drawShape=function(e,t){};o.prototype.drawConnection=function(e,t){};o.prototype.getShapePath=function(e){};o.prototype.getConnectionPath=function(e){};export{o as default};
-//# sourceMappingURL=BaseRenderer.mjs.map

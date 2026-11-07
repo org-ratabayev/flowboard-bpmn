@@ -260,9 +260,17 @@ describe('static files and errors', () => {
   });
 
   it('serves assets and the license list', async () => {
-    const css = await req('GET', '/styles.css');
-    assert.equal(css.status, 200);
-    assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
+    const types = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+    for (const page of ['/', '/p/anything']) {
+      const html = (await req('GET', page)).body;
+      const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
+      assert.ok(assets.some((a) => a.endsWith('.css')), `${page} links a stylesheet`);
+      for (const asset of assets) {
+        const res = await req('GET', asset);
+        assert.equal(res.status, 200, asset);
+        assert.equal(res.headers.get('content-type'), types[path.extname(asset)], asset);
+      }
+    }
     const licenses = await req('GET', '/licenses');
     assert.equal(licenses.status, 200);
     assert.equal(licenses.headers.get('content-type'), 'text/plain; charset=utf-8');

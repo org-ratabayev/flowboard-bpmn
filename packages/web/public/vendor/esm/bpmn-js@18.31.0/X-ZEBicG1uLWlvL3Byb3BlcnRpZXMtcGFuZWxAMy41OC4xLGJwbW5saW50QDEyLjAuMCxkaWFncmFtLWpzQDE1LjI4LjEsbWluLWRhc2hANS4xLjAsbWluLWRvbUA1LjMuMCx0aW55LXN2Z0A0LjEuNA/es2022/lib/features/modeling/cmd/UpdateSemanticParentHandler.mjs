@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/cmd/UpdateSemanticParentHandler */
-function r(a){this._bpmnUpdater=a}r.$inject=["bpmnUpdater"];r.prototype.execute=function(a){var t=a.dataStoreBo,e=a.dataStoreDi,n=a.newSemanticParent,i=a.newDiParent;return a.oldSemanticParent=t.$parent,a.oldDiParent=e.$parent,this._bpmnUpdater.updateSemanticParent(t,n),this._bpmnUpdater.updateDiParent(e,i),[]};r.prototype.revert=function(a){var t=a.dataStoreBo,e=a.dataStoreDi,n=a.oldSemanticParent,i=a.oldDiParent;return this._bpmnUpdater.updateSemanticParent(t,n),this._bpmnUpdater.updateDiParent(e,i),[]};export{r as default};
-//# sourceMappingURL=UpdateSemanticParentHandler.mjs.map

@@ -2,9 +2,22 @@
   "name": "@flowboard/web",
   "version": "1.0.0",
   "private": true,
-  "description": "Browser app of the BPMN editor: pages, scripts, styles and vendored bpmn-js plugins",
+  "description": "Browser app of the BPMN editor, built with Vite into dist/",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bpmn-io/properties-panel": "3.58.1",
+    "bpmn-auto-layout": "1.3.0",
+    "bpmn-js": "18.31.0",
+    "bpmn-js-bpmnlint": "0.25.0",
+    "bpmn-js-color-picker": "0.7.2",
+    "bpmn-js-differ": "3.2.0",
+    "bpmn-js-properties-panel": "5.65.3",
+    "bpmn-js-token-simulation": "1.1.0",
+    "bpmnlint": "12.0.0",
+    "diagram-js": "15.28.1",
+    "diagram-js-minimap": "5.6.0"
   }
 }

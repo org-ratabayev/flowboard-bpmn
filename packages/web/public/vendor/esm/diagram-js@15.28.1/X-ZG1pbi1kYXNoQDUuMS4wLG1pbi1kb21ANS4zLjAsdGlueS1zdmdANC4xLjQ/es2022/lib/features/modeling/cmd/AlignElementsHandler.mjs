@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/AlignElementsHandler */
-import{forEach as a,isDefined as n}from"../../../../../../../min-dash@5.1.0/es2022/min-dash.mjs";function r(e,f){this._modeling=e,this._canvas=f}r.$inject=["modeling","canvas"];r.prototype.preExecute=function(e){var f=this._modeling,s=e.elements,t=e.alignment;a(s,function(i){var o={x:0,y:0};n(t.left)?o.x=t.left-i.x:n(t.right)?o.x=t.right-i.width-i.x:n(t.center)?o.x=t.center-Math.round(i.width/2)-i.x:n(t.top)?o.y=t.top-i.y:n(t.bottom)?o.y=t.bottom-i.height-i.y:n(t.middle)&&(o.y=t.middle-Math.round(i.height/2)-i.y),f.moveElements([i],o,i.parent)})};r.prototype.postExecute=function(e){};export{r as default};
-//# sourceMappingURL=AlignElementsHandler.mjs.map

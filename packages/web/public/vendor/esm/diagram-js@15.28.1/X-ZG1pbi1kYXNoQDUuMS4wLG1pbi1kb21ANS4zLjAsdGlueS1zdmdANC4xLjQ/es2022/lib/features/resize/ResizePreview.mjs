@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/resize/ResizePreview */
-import{attr as t,remove as R,classes as n}from"../../../../../../tiny-svg@4.1.4/es2022/tiny-svg.mjs";var m="djs-resizing",o="resize-not-ok",p=500;function v(f,s,d){function h(e){var i=e.shape,r=e.newBounds,a=e.frame;a||(a=e.frame=d.addFrame(i,s.getActiveLayer()),s.addMarker(i,m)),r.width>5&&t(a,{x:r.x,width:r.width}),r.height>5&&t(a,{y:r.y,height:r.height}),e.canExecute?n(a).remove(o):n(a).add(o)}function u(e){var i=e.shape,r=e.frame;r&&R(e.frame),s.removeMarker(i,m)}f.on("resize.move",p,function(e){h(e.context)}),f.on("resize.cleanup",function(e){u(e.context)})}v.$inject=["eventBus","canvas","previewSupport"];export{v as default};
-//# sourceMappingURL=ResizePreview.mjs.map

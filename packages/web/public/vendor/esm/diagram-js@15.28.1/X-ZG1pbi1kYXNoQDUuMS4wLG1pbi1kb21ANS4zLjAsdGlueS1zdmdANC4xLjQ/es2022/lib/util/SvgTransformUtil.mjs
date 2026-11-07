@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/util/SvgTransformUtil */
-import{transform as o,createTransform as e}from"../../../../../tiny-svg@4.1.4/es2022/tiny-svg.mjs";function i(r,a,t,s,n){var c=e();c.setTranslate(a,t);var l=e();l.setRotate(s||0,0,0);var f=e();f.setScale(n||1,n||1),o(r,[c,l,f])}function p(r,a,t){var s=e();s.setTranslate(a,t),o(r,s)}function m(r,a){var t=e();t.setRotate(a,0,0),o(r,t)}function x(r,a){var t=e();t.setScale(a,a),o(r,t)}export{m as rotate,x as scale,i as transform,p as translate};
-//# sourceMappingURL=SvgTransformUtil.mjs.map

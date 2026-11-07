@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/rules/RuleProvider */
-import c from"../../../../../../inherits-browser@0.1.0__784fb815.mjs";import n from"../../command/CommandInterceptor.mjs";function e(t){n.call(this,t),this.init()}e.$inject=["eventBus"];c(e,n);e.prototype.addRule=function(t,i,r){var o=this;typeof t=="string"&&(t=[t]),t.forEach(function(f){o.canExecute(f,i,function(u,p,l){return r(u)},!0)})};e.prototype.init=function(){};export{e as default};
-//# sourceMappingURL=RuleProvider.mjs.map

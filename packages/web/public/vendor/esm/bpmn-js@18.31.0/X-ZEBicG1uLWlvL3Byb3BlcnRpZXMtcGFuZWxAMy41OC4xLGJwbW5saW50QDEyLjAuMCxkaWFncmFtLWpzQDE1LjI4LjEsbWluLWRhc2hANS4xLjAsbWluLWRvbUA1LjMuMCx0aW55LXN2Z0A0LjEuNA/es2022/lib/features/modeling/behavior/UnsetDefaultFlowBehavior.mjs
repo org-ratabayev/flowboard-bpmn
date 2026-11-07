@@ -1,3 +1,0 @@
-/* esm.sh - bpmn-js@18.31.0/lib/features/modeling/behavior/UnsetDefaultFlowBehavior */
-import s from"../../../../../../../inherits-browser@0.1.0__784fb815.mjs";import l from"../../../../../../../diagram-js@15.28.1/X-ZG1pbi1kYXNoQDUuMS4wLG1pbi1kb21ANS4zLjAsdGlueS1zdmdANC4xLjQ/es2022/lib/command/CommandInterceptor.mjs";import{getBusinessObject as u,is as f}from"../../../util/ModelUtil.mjs";function r(e,t){l.call(this,e),this.preExecute("connection.delete",function(o){var n=o.context,i=n.connection,c=i.source;a(i,c)&&t.updateProperties(c,{default:null})})}s(r,l);r.$inject=["eventBus","modeling"];function a(e,t){if(!f(e,"bpmn:SequenceFlow"))return!1;var o=u(t),n=u(e);return o.get("default")===n}export{r as default};
-//# sourceMappingURL=UnsetDefaultFlowBehavior.mjs.map

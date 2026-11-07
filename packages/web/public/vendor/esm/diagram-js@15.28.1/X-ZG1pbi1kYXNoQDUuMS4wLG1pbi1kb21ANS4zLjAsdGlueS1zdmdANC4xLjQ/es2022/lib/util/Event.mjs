@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/util/Event */
-function i(o){!o||typeof o.stopPropagation!="function"||o.stopPropagation()}function t(o){return o.originalEvent||o.srcEvent}function r(o){i(o),i(t(o))}function n(o){return o.pointers&&o.pointers.length&&(o=o.pointers[0]),o.touches&&o.touches.length&&(o=o.touches[0]),o?{x:o.clientX,y:o.clientY}:null}export{t as getOriginal,r as stopPropagation,n as toPoint};
-//# sourceMappingURL=Event.mjs.map

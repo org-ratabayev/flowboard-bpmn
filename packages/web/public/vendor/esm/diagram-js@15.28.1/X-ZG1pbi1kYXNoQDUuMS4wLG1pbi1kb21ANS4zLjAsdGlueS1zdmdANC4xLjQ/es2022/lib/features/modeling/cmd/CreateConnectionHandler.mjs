@@ -1,3 +1,0 @@
-/* esm.sh - diagram-js@15.28.1/lib/features/modeling/cmd/CreateConnectionHandler */
-function r(e,n){this._canvas=e,this._layouter=n}r.$inject=["canvas","layouter"];r.prototype.execute=function(e){var n=e.connection,t=e.source,o=e.target,a=e.parent,i=e.parentIndex,c=e.hints;if(!t||!o)throw new Error("source and target required");if(!a)throw new Error("parent required");return n.source=t,n.target=o,n.waypoints||(n.waypoints=this._layouter.layoutConnection(n,c)),this._canvas.addConnection(n,a,i),n};r.prototype.revert=function(e){var n=e.connection;return this._canvas.removeConnection(n),n.source=null,n.target=null,n};export{r as default};
-//# sourceMappingURL=CreateConnectionHandler.mjs.map

@@ -1,8 +1,7 @@
 # Local BPMN editor
 
 bpmn.io (bpmn-js 18.31.0) with saved projects, full version history and shareable links.
-The server is written in TypeScript and runs directly on Node (no build step); all browser code is vendored in
-`packages/web/public/vendor/`.
+The server is written in TypeScript and runs directly on Node (no build step); the browser app is bundled with Vite.
 
 ## Run
 
@@ -30,7 +29,7 @@ module, built-in defaults.
 | Path | What |
 |---|---|
 | `packages/server/` | The server as a library: `createServer(config)`, config loading, storage, live collaboration, chat |
-| `packages/web/` | The browser app in `public/` (pages, scripts, styles, vendored bpmn-js plugins); exports its `publicDir` |
+| `packages/web/` | The browser app: pages, `src/` (scripts, styles); built into `dist/`, which it exports as `publicDir` |
 | `apps/standalone/` | The default entry point (`pnpm start`): reads `.env`, the environment and `APP_CONFIG` |
 | `test/` | Black-box HTTP tests |
 
@@ -120,20 +119,22 @@ providers can be added next to it later.
 
 ## Plugins and upgrading
 
-| Plugin | Version | Location |
-|---|---|---|
-| bpmn-js | 18.31.0 | `packages/web/public/vendor/bpmn-js/` (UMD bundle from unpkg) |
-| bpmn-js-color-picker | 0.7.2 | `packages/web/public/vendor/bpmn-js-color-picker/` (wrapped into a browser script) |
-| bpmn-js-properties-panel (+ @bpmn-io/properties-panel 3.58.1) | 5.65.3 | `packages/web/public/vendor/esm/raw/` (original files from unpkg, see script comment) |
-| bpmn-js-differ | 3.2.0 | `packages/web/public/vendor/esm/` |
-| bpmn-js-bpmnlint / bpmnlint | 0.25.0 / 12.0.0 | `packages/web/public/vendor/esm/`, rules packed in `packages/web/public/js/lint-config.mjs` |
-| bpmn-js-token-simulation | 1.1.0 | `packages/web/public/vendor/esm/` |
-| diagram-js-minimap | 5.6.0 | `packages/web/public/vendor/esm/` |
-| bpmn-auto-layout | 1.3.0 | `packages/web/public/vendor/esm/` |
+The browser libraries are npm dependencies of `packages/web` (exact versions in `packages/web/package.json`), bundled
+by Vite into `packages/web/dist/` (`pnpm build`; `pnpm start` builds first).
 
-The ES-module plugins are fetched pre-bundled from esm.sh by `scripts/vendor-plugins.py`, so no npm install is
-needed. To upgrade, bump the versions in that script and run `python3 scripts/vendor-plugins.py`.
-If you change `LINT_RULES`, regenerate `packages/web/public/js/lint-config.mjs` accordingly.
+| Plugin | Version |
+|---|---|
+| bpmn-js (+ diagram-js 15.28.1) | 18.31.0 |
+| bpmn-js-color-picker | 0.7.2 |
+| bpmn-js-properties-panel (+ @bpmn-io/properties-panel 3.58.1) | 5.65.3 |
+| bpmn-js-differ | 3.2.0 |
+| bpmn-js-bpmnlint / bpmnlint | 0.25.0 / 12.0.0 (rules wired up in `packages/web/src/lint-config.mjs`) |
+| bpmn-js-token-simulation | 1.1.0 |
+| diagram-js-minimap | 5.6.0 |
+| bpmn-auto-layout | 1.3.0 |
+
+To upgrade, change the version in `packages/web/package.json`, run `pnpm install`, `pnpm test` and `pnpm license-list`,
+and check the editor in a browser.
 
 ## Licenses
 
@@ -141,13 +142,12 @@ The app bundles third-party code, mostly MIT, plus ISC, Apache-2.0 (htm), CC0 (r
 bpmn.io license. There's no GPL/AGPL code. The full list with license texts is in `THIRD_PARTY_LICENSES.md`, shown
 in the app at `/licenses` (linked from the project list and the editor's More menu).
 
-After changing vendored versions, run `python3 scripts/license-audit.py` to regenerate the list. Keep its `ROOTS`
-in sync with `scripts/vendor-plugins.py`.
+After changing dependencies, run `pnpm license-list` to regenerate the list from the installed packages.
 
 **bpmn.io watermark:** the bpmn.io license requires that the "powered by bpmn.io" watermark in the canvas corner is
 not removed or changed, and stays fully visible and never overlapped by other elements. The layout keeps it that way:
 side panels push the canvas aside (or below it on narrow screens) instead of covering it, and the canvas container is
-isolated (`packages/web/public/styles.css`) so UI drawn inside the canvas stays below the watermark. Keep this in mind for new UI.
+isolated (`packages/web/src/styles.css`) so UI drawn inside the canvas stays below the watermark. Keep this in mind for new UI.
 
 ## Sharing outside your network
 
