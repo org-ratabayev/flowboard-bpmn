@@ -14,7 +14,8 @@ export default defineConfig({
         index: path.join(import.meta.dirname, 'index.html'),
         editor: path.join(import.meta.dirname, 'editor.html'),
         login: path.join(import.meta.dirname, 'login.html'),
-        settings: path.join(import.meta.dirname, 'settings.html')
+        settings: path.join(import.meta.dirname, 'settings.html'),
+        join: path.join(import.meta.dirname, 'join.html')
       }
     }
   }

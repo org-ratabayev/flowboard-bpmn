@@ -94,7 +94,8 @@ export function createOidcAuth(config: Config, store: AuthStore, session: Sessio
       return messagePage(res, 502, 'Sign-in failed', 'The answer from the sign-in provider could not be verified.', retry);
     }
 
-    const email = typeof claims.email === 'string' ? claims.email.toLowerCase() : null;
+    // An email the provider marks as unverified is not kept: invitations are redeemed by email.
+    const email = typeof claims.email === 'string' && claims.email_verified !== false ? claims.email.toLowerCase() : null;
     if (allowedDomains.length) {
       const domain = email?.split('@')[1];
       if (!email || claims.email_verified === false || !domain || !allowedDomains.includes(domain)) {

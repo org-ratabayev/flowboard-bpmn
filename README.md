@@ -241,8 +241,16 @@ Every project has an **owner**. New projects are **private**: only their owner s
 | Can view | open, see the history, download and export, see others live |
 
 - Add people by name or email (people appear after they signed in once) and pick *Can edit* or *Can view*.
+- **Invite by email** someone who has not signed in yet: they get access the first time they sign in with that
+  email. This needs a sign-in method that provides verified emails (`oidc`, or `trusted-headers` with
+  `AUTH_EMAIL_HEADER`); `dev` sign-in has no emails.
+- **Share links** (`/s/…`): anyone who opens one and signs in joins with its role (*Can view* or *Can edit*). A link
+  is shown once; it can be limited to 7 or 30 days for joining, and revoking it removes everyone who joined through
+  it. Opening a link never lowers access someone already has. If the owner changes the role of someone who joined
+  through a link, they no longer depend on it.
 - *General access → Everyone signed in can view* makes a project readable by every signed-in user.
 - Anyone with access sees who else has it and can remove their own access.
+- **Activity** in the Share dialog lists every access change (who did what, when) to the owner.
 - Projects that existed before sharing (including folders imported on first start) belong to the **first user who
   signed in**, and are private as well.
 - Someone without access gets "Project not found", the same as for a project that does not exist.

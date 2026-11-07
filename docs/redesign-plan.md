@@ -657,6 +657,14 @@ Implementation notes (4a done; 4b share links, pending grants by email and audit
 - The matrix test lists the routes explicitly instead of enumerating the router (the router is hand-written).
 - Viewers get a "View only" UI (no Save/Chat, no publishing or saving); the locked editor and live role changes are Phase 5.
 - The share dialog is a panel without a full-page backdrop, so the bpmn.io watermark is never covered.
+- 4b (done): share links, invitations by email and the audit log (migration `006_links_invites_audit`).
+  **Deviation from 6.1:** opening a share link creates a grant marked with the link (`document_grants.link_id`)
+  instead of authorizing each request that carries the token, because the live stream (`EventSource`) cannot send
+  custom headers and links in every request URL would leak into logs. Revoking a link deletes the grants it created,
+  which keeps "revoke the link, remove the access"; link expiry only limits joining. Joining is a POST from the
+  `/s/<token>` page (signed-in users only; access tokens cannot join). Invitations use `pending_grants` and are
+  accepted when a user signs in with that email; unverified OIDC emails are not kept, so they cannot claim them.
+  The audit log covers creation, visibility, members, links, joins and invitations; the owner reads it in the dialog.
 
 ### Phase 5: Live collaboration on the new model + live role changes
 

@@ -71,6 +71,13 @@ describe('OIDC sign-in', () => {
     assert.equal(meAgain.body.name, 'Ann L.');
   });
 
+  it('does not keep an email the provider marks as unverified', async () => {
+    const { session } = await signIn(server, { user: { sub: 'u-unverified', name: 'Una', email: 'una@example.com', email_verified: false } });
+    const me = await server.anonymous('GET', '/api/me', undefined, { cookie: session });
+    assert.equal(me.body.name, 'Una');
+    assert.equal(me.body.email, null);
+  });
+
   it('never returns to another site', async () => {
     for (const returnTo of ['https://evil.example', '//evil.example', '/\\evil.example']) {
       const { callback } = await signIn(server, { returnTo });

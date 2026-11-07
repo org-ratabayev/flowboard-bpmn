@@ -35,7 +35,12 @@ describe('every project route checks the role', () => {
     ['chat', 'editor', () => ['POST', `/api/projects/${id}/chat`, { message: 'Hi', xml: diagram() }], 200],
     ['change visibility', 'owner', () => ['PATCH', `/api/projects/${id}/access`, { visibility: 'private' }], 200],
     ['grant access', 'owner', () => ['PUT', `/api/projects/${id}/access/members/${ids.extra}`, { role: 'viewer' }], 200],
-    ['remove access', 'owner', () => ['DELETE', `/api/projects/${id}/access/members/${ids.extra}`], 204]
+    ['remove access', 'owner', () => ['DELETE', `/api/projects/${id}/access/members/${ids.extra}`], 204],
+    ['create a share link', 'owner', () => ['POST', `/api/projects/${id}/access/links`, { role: 'viewer', expiresInDays: 1 }], 201],
+    ['revoke a share link', 'owner', () => ['DELETE', `/api/projects/${id}/access/links/no-such-link`], 404],
+    ['invite by email', 'owner', () => ['POST', `/api/projects/${id}/access/invites`, { email: 'someone@example.com', role: 'viewer' }], 200],
+    ['cancel an invitation', 'owner', () => ['DELETE', `/api/projects/${id}/access/invites/nobody%40example.com`], 404],
+    ['read the access log', 'owner', () => ['GET', `/api/projects/${id}/access/log`], 200]
   ];
 
   for (const [description, minimum, makeRequest, okStatus] of routes) {
@@ -48,7 +53,7 @@ describe('every project route checks the role', () => {
         const [method, path, body] = makeRequest();
         const res = await server.as(user)(method, path, body);
         assert.equal(res.status, expected, JSON.stringify(res.body));
-        if (expected === 404) assert.deepEqual(res.body, { error: 'Project not found' });
+        if (expected === 404 && role === 'none') assert.deepEqual(res.body, { error: 'Project not found' });
         if (expected === 403) assert.match(res.body.error, minimum === 'owner' ? /Only the owner/ : /view this project but not change it/);
       });
     }

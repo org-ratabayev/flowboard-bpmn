@@ -5,7 +5,7 @@ import { looksLikeBpmn } from './bpmn.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
 import type { LiveHub } from './live.ts';
-import { atLeast, isGrantRole, isVisibility, type AccessStore, type Role } from './storage/accessStore.ts';
+import { atLeast, isGrantRole, isVisibility, normalizeEmail, type AccessStore, type Role } from './storage/accessStore.ts';
 import { isProjectId, isVersionName, type DocumentStore } from './storage/index.ts';
 
 const MAX_BODY = 20 * 1024 * 1024;
@@ -26,12 +26,22 @@ export interface ApiContext {
 
 const TOKEN_EXPIRY_DAYS_MAX = 3650;
 
+const LINK_EXPIRY_DAYS_MAX = 365;
+
+const validExpiry = (days: unknown, max: number): days is number | null =>
+  days === null || (typeof days === 'number' && Number.isInteger(days) && days >= 1 && days <= max);
+
 /**
  * /api/projects/:id/access…  Everyone with access sees who else has it; only the owner changes it.
- *   GET                       owner, visibility and grants
- *   PATCH  { visibility }     'private' or 'everyone' (every signed-in user can view)
+ *   GET                        owner, visibility, members (plus links and invitations for the owner)
+ *   PATCH  { visibility }      'private' or 'everyone' (every signed-in user can view)
  *   PUT    members/:userId { role }   give or change a role ('viewer' | 'editor')
- *   DELETE members/:userId      remove it (the user may also remove their own access)
+ *   DELETE members/:userId     remove it (the user may also remove their own access)
+ *   POST   links { role, expiresInDays }   create a share link (its token is returned once)
+ *   DELETE links/:linkId       revoke a link, removing everyone who joined through it
+ *   POST   invites { email, role }   invite by email (a known user gets access at once)
+ *   DELETE invites/:email      cancel an invitation
+ *   GET    log                 access changes, newest first (owner)
  */
 async function handleAccess(
   ctx: ApiContext,
@@ -39,38 +49,85 @@ async function handleAccess(
   res: ServerResponse,
   id: string,
   rest: string[],
+  role: Role,
   allowed: (minimum: Role) => boolean
 ): Promise<void> {
   const { access, identity } = ctx;
+  const current = () => access.access(id, { forOwner: role === 'owner' });
+  const [kind, key] = rest;
+
   if (rest.length === 0) {
-    if (req.method === 'GET') return send(res, 200, await access.access(id));
+    if (req.method === 'GET') return send(res, 200, await current());
     if (req.method === 'PATCH') {
       if (!allowed('owner')) return;
       const { visibility } = await readJson(req, 4096);
       if (!isVisibility(visibility)) return send(res, 400, { error: "visibility must be 'private' or 'everyone'" });
-      await access.setVisibility(id, visibility);
-      return send(res, 200, await access.access(id));
+      await access.setVisibility(id, visibility, identity.id);
+      return send(res, 200, await current());
     }
     return send(res, 405, { error: 'Method not allowed' });
   }
-  if (rest.length === 2 && rest[0] === 'members') {
-    const userId = rest[1];
+
+  if (kind === 'members' && rest.length === 2) {
     if (req.method === 'PUT') {
       if (!allowed('owner')) return;
-      const { role } = await readJson(req, 4096);
-      if (!isGrantRole(role)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
-      const result = await access.grant(id, userId, role, identity.id);
+      const { role: newRole } = await readJson(req, 4096);
+      if (!isGrantRole(newRole)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
+      const result = await access.grant(id, key, newRole, identity.id);
       if (result === 'unknown-user') return send(res, 404, { error: 'User not found' });
       if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
-      return send(res, 200, await access.access(id));
+      return send(res, 200, await current());
     }
     if (req.method === 'DELETE') {
-      if (userId !== identity.id && !allowed('owner')) return;
-      if (!(await access.revoke(id, userId))) return send(res, 404, { error: 'This user has no access to remove' });
+      if (key !== identity.id && !allowed('owner')) return;
+      if (!(await access.revoke(id, key, identity.id))) return send(res, 404, { error: 'This user has no access to remove' });
       return send(res, 204, '');
     }
     return send(res, 405, { error: 'Method not allowed' });
   }
+
+  if (kind === 'links' && (rest.length === 1 || rest.length === 2)) {
+    if (!allowed('owner')) return;
+    if (rest.length === 1 && req.method === 'POST') {
+      const { role: linkRole, expiresInDays = null } = await readJson(req, 4096);
+      if (!isGrantRole(linkRole)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
+      if (!validExpiry(expiresInDays, LINK_EXPIRY_DAYS_MAX)) {
+        return send(res, 400, { error: `expiresInDays must be a whole number from 1 to ${LINK_EXPIRY_DAYS_MAX}, or null for no expiry` });
+      }
+      const link = await access.createLink(id, linkRole, expiresInDays, identity.id);
+      return send(res, 201, { ...link, path: `/s/${link.token}` });
+    }
+    if (rest.length === 2 && req.method === 'DELETE') {
+      if (!(await access.revokeLink(id, key, identity.id))) return send(res, 404, { error: 'Link not found' });
+      return send(res, 204, '');
+    }
+    return send(res, 405, { error: 'Method not allowed' });
+  }
+
+  if (kind === 'invites' && (rest.length === 1 || rest.length === 2)) {
+    if (!allowed('owner')) return;
+    if (rest.length === 1 && req.method === 'POST') {
+      const body = await readJson(req, 4096);
+      const email = normalizeEmail(body.email);
+      if (!email) return send(res, 400, { error: 'Enter a valid email address' });
+      if (!isGrantRole(body.role)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
+      const result = await access.invite(id, email, body.role, identity.id);
+      if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
+      return send(res, 200, { result, access: await current() });
+    }
+    if (rest.length === 2 && req.method === 'DELETE') {
+      const email = normalizeEmail(key);
+      if (!email || !(await access.removeInvite(id, email, identity.id))) return send(res, 404, { error: 'Invitation not found' });
+      return send(res, 204, '');
+    }
+    return send(res, 405, { error: 'Method not allowed' });
+  }
+
+  if (kind === 'log' && rest.length === 1 && req.method === 'GET') {
+    if (!allowed('owner')) return;
+    return send(res, 200, await access.log(id));
+  }
+
   return send(res, 404, { error: 'Not found' });
 }
 
@@ -118,6 +175,15 @@ export async function handleApi(
     const q = (url.searchParams.get('q') || '').trim();
     if (q.length < 2) return send(res, 200, []);
     return send(res, 200, await ctx.access.searchUsers(q.slice(0, 100)));
+  }
+  if (resource === 'share' && parts[2] === 'join' && parts.length === 3 && req.method === 'POST') {
+    // joining needs a browser session: the link is for people, not for scripts with a token
+    if (ctx.viaToken) return send(res, 403, { error: 'Open share links in the browser' });
+    const { token } = await readJson(req, 4096);
+    const result = await ctx.access.joinByLink(String(token ?? ''), identity.id);
+    if (result === 'invalid') return send(res, 404, { error: 'This share link is not valid. It may have been revoked.' });
+    if (result === 'expired') return send(res, 410, { error: 'This share link has expired. Ask the owner for a new one.' });
+    return send(res, 200, { projectId: result.documentId, role: result.role });
   }
   if (resource !== 'projects') return send(res, 404, { error: 'Not found' });
 
@@ -195,7 +261,7 @@ export async function handleApi(
     return send(res, 405, { error: 'Method not allowed' });
   }
 
-  if (sub === 'access') return handleAccess(ctx, req, res, id, parts.slice(4), allowed);
+  if (sub === 'access') return handleAccess(ctx, req, res, id, parts.slice(4), role, allowed);
 
   if (sub === 'chat' && req.method === 'POST') {
     if (!allowed('editor')) return;
