@@ -1,0 +1,13 @@
+{
+  "name": "@flowboard/server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BPMN editor server: projects, version history, live collaboration and chat",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}
