@@ -6,11 +6,23 @@ import { z } from 'zod';
 const expandHome = (p: string) => p.replace(/^~(?=$|\/)/, os.homedir());
 const absolutePath = z.string().min(1).transform((p) => path.resolve(expandHome(p)));
 
-export const configSchema = z.object({
+const baseSchema = z.object({
   port: z.number().int().min(0).max(65535).default(3000),
   host: z.string().min(1).default('0.0.0.0'),
-  /** Folder holding all projects and their history. */
+  /** Data folder: holds the SQLite database by default; project folders found here are imported on first start. */
   dataDir: absolutePath.prefault('~/workspace/bpmn-diagrams'),
+  storage: z
+    .object({
+      kind: z.enum(['sqlite', 'postgres']).default('sqlite'),
+      /** SQLite database file; defaults to <dataDir>/flowboard.sqlite. */
+      sqlitePath: absolutePath.optional(),
+      /** Postgres connection string, required when kind is 'postgres'. */
+      postgresUrl: z.string().min(1).optional(),
+      postgresPoolSize: z.number().int().positive().default(10),
+      /** When the database has no projects yet, import the project folders found in dataDir. */
+      importOnFirstStart: z.boolean().default(true)
+    })
+    .prefault({}),
   /** Folder with the browser app (HTML, JS, CSS, vendored libraries). */
   publicDir: absolutePath,
   /** Third-party license list served at /licenses. */
@@ -30,6 +42,16 @@ export const configSchema = z.object({
     })
     .prefault({})
 });
+
+export const configSchema = baseSchema
+  .refine((c) => c.storage.kind !== 'postgres' || c.storage.postgresUrl, {
+    message: 'storage.postgresUrl (DATABASE_URL) is required for Postgres storage',
+    path: ['storage', 'postgresUrl']
+  })
+  .transform((c) => ({
+    ...c,
+    storage: { ...c.storage, sqlitePath: c.storage.sqlitePath ?? path.join(c.dataDir, 'flowboard.sqlite') }
+  }));
 
 export type ConfigInput = z.input<typeof configSchema>;
 export type Config = z.output<typeof configSchema>;
@@ -59,6 +81,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
     port: number('PORT'),
     host: env.HOST || undefined,
     dataDir: env.BPMN_DIR || undefined,
+    storage: {
+      kind: env.STORAGE === 'sqlite' || env.STORAGE === 'postgres' ? env.STORAGE : env.DATABASE_URL ? 'postgres' : undefined,
+      sqlitePath: env.SQLITE_PATH || undefined,
+      postgresUrl: env.DATABASE_URL || undefined,
+      postgresPoolSize: number('PG_POOL_SIZE'),
+      importOnFirstStart: env.IMPORT_ON_FIRST_START ? env.IMPORT_ON_FIRST_START !== 'off' : undefined
+    },
     chat: {
       enabled: env.CHAT ? env.CHAT !== 'off' : undefined,
       claudeCode: {

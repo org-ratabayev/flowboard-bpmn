@@ -1,0 +1,127 @@
+// Contract tests: the same expectations for every storage backend.
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { EMPTY_DIAGRAM } from '../bpmn.ts';
+import { migrate } from './migrations.ts';
+import type { DocumentStore } from './sqlStore.ts';
+import { backends } from './testBackends.ts';
+
+const VERSION_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/;
+const xml = (label: string) => `<bpmn:definitions id="D"><bpmn:process id="P"><bpmn:task name="${label}"/></bpmn:process></bpmn:definitions>`;
+
+describe.each(backends)('$name store', (backend) => {
+  let store: DocumentStore;
+  let cleanup: () => Promise<void>;
+  beforeEach(async () => ({ store, cleanup } = await backend.open()));
+  afterEach(() => cleanup());
+
+  it('applies migrations once', async () => {
+    expect(await migrate(store.db)).toEqual([]);
+  });
+
+  it('creates projects with unique ids and a first version', async () => {
+    expect(await store.createProject('Order Flow!', xml('A'), 'Alice')).toBe('order-flow');
+    expect(await store.createProject('Order Flow!', undefined, null)).toBe('order-flow-2');
+    expect(await store.hasProject('order-flow')).toBe(true);
+    expect(await store.hasProject('missing')).toBe(false);
+    expect(await store.hasProject('Bad_ID')).toBe(false);
+    expect(await store.countProjects()).toBe(2);
+
+    expect(await store.readLatest('order-flow')).toBe(xml('A'));
+    expect(await store.readLatest('order-flow-2')).toBe(EMPTY_DIAGRAM);
+    const [v] = await store.listVersions('order-flow');
+    expect(v).toMatchObject({ author: 'Alice', note: 'Created', size: Buffer.byteLength(xml('A')) });
+    expect(v.version).toMatch(VERSION_RE);
+    expect(await store.currentVersion('order-flow')).toBe(v.version);
+    expect(await store.readVersion('order-flow', v.version)).toBe(xml('A'));
+    expect(await store.readVersion('order-flow', '2000-01-01T00-00-00-000Z')).toBeNull();
+
+    const meta = await store.readMeta('order-flow');
+    expect(meta.name).toBe('Order Flow!');
+    expect(Date.parse(meta.createdAt!)).not.toBeNaN();
+  });
+
+  it('lists projects newest first with summary fields', async () => {
+    await store.createProject('One', xml('1'), 'Alice');
+    await new Promise((r) => setTimeout(r, 5));
+    await store.createProject('Two', xml('2'), 'Bob');
+    const list = await store.listProjects();
+    expect(list.map((p) => p.id)).toEqual(['two', 'one']);
+    expect(list[0]).toMatchObject({ name: 'Two', updatedBy: 'Bob', versionCount: 1 });
+    expect(Date.parse(list[0].updatedAt)).not.toBeNaN();
+  });
+
+  it('saves versions on top of the latest one and refuses outdated ones', async () => {
+    const id = await store.createProject('Saves', xml('1'), null);
+    const base = (await store.currentVersion(id))!;
+    const first = await store.saveVersion(id, xml('2'), { baseVersion: base, author: 'Bob', note: 'Second' });
+    expect('saved' in first).toBe(true);
+    const conflict = await store.saveVersion(id, xml('3'), { baseVersion: base });
+    expect(conflict).toEqual({ conflict: expect.objectContaining({ author: 'Bob', note: 'Second' }) });
+    expect('saved' in (await store.saveVersion(id, xml('3'), { baseVersion: 'old', force: true }))).toBe(true);
+
+    const versions = await store.listVersions(id);
+    expect(versions.map((v) => v.note)).toEqual([null, 'Second', 'Created']);
+    expect(new Set(versions.map((v) => v.version)).size).toBe(3);
+    expect(await store.readLatest(id)).toBe(xml('3'));
+    expect((await store.listProjects())[0].versionCount).toBe(3);
+  });
+
+  it('lets only one of two concurrent saves on the same base win', async () => {
+    const id = await store.createProject('Race', xml('1'), null);
+    const base = await store.currentVersion(id);
+    const results = await Promise.all([
+      store.saveVersion(id, xml('a'), { baseVersion: base }),
+      store.saveVersion(id, xml('b'), { baseVersion: base })
+    ]);
+    expect(results.filter((r) => 'saved' in r)).toHaveLength(1);
+    expect(results.filter((r) => 'conflict' in r)).toHaveLength(1);
+    expect(await store.listVersions(id)).toHaveLength(2);
+  });
+
+  it('gives versions saved in the same millisecond distinct names', async () => {
+    const id = await store.createProject('Fast', xml('1'), null);
+    await Promise.all([1, 2, 3].map((n) => store.saveVersion(id, xml(String(n)), { force: true })));
+    const names = (await store.listVersions(id)).map((v) => v.version);
+    expect(new Set(names).size).toBe(4);
+    names.forEach((n) => expect(n).toMatch(VERSION_RE));
+  });
+
+  it('renames, including to an empty name as before', async () => {
+    const id = await store.createProject('Old', xml('1'), null);
+    expect((await store.renameProject(id, 'New')).name).toBe('New');
+    expect((await store.renameProject(id, undefined)).name).toBe('New');
+    expect((await store.renameProject(id, '')).name).toBe('');
+    expect((await store.listProjects())[0].name).toBe(id);
+  });
+
+  it('imports a project with its history once', async () => {
+    await store.createProject('Taken', xml('x'), null);
+    const project = {
+      id: 'taken',
+      name: 'Imported',
+      createdAt: '2026-01-01T10:00:00.000Z',
+      importKey: 'folder:taken',
+      versions: [
+        { name: '2026-01-01T10-00-00-000Z', at: '2026-01-01T10:00:00.000Z', xml: xml('v1'), author: 'Ann', note: 'Created' },
+        { name: '2026-01-02T10-00-00-000Z', at: '2026-01-02T10:00:00.000Z', xml: xml('v2'), author: null, note: null }
+      ]
+    };
+    expect(await store.importProject(project)).toEqual({ id: 'taken-2', status: 'imported' });
+    expect(await store.importProject(project)).toEqual({ id: 'taken-2', status: 'skipped' });
+
+    const versions = await store.listVersions('taken-2');
+    expect(versions.map((v) => [v.version, v.at, v.author])).toEqual([
+      ['2026-01-02T10-00-00-000Z', '2026-01-02T10:00:00.000Z', null],
+      ['2026-01-01T10-00-00-000Z', '2026-01-01T10:00:00.000Z', 'Ann']
+    ]);
+    expect(await store.readMeta('taken-2')).toEqual({ name: 'Imported', createdAt: '2026-01-01T10:00:00.000Z' });
+    const listed = (await store.listProjects()).find((p) => p.id === 'taken-2')!;
+    expect(listed.updatedAt).toBe('2026-01-02T10:00:00.000Z');
+
+    // Saving on top of imported history continues the sequence.
+    const saved = await store.saveVersion('taken-2', xml('v3'), { baseVersion: '2026-01-02T10-00-00-000Z' });
+    expect('saved' in saved).toBe(true);
+    expect(await store.readLatest('taken-2')).toBe(xml('v3'));
+  });
+});

@@ -593,6 +593,16 @@ Tasks:
 Acceptance: contract tests green on both backends; an imported `BPMN_DIR` shows the same projects and history as
 before; export → import round-trips byte-identical XML.
 
+Implementation notes (done):
+- Tables `documents` and `document_versions` only. Users, sessions, tokens, grants, share links, audit and
+  `live_state` are added by the migrations of the phases that use them (3–5).
+- Document ids and version names keep the earlier formats (slug ids, timestamp version names) instead of UUIDs and
+  `seq`-only versions, so existing links and the browser app work unchanged. `seq` orders versions internally.
+  New documents can switch to random ids in Phase 4 without breaking existing ones.
+- Postgres in tests is PGlite (in-process, wire protocol via pglite-socket) instead of Docker; it runs one session,
+  so tests use a pool of one connection. `docker-compose.yml` is for trying a real Postgres locally.
+- When the database is empty, project folders in `BPMN_DIR` are imported automatically on first start.
+
 ### Phase 3: Authentication
 
 Tasks:

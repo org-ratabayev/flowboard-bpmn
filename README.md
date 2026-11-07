@@ -45,13 +45,28 @@ pnpm typecheck
   server as a separate process with a temporary storage folder and a fake Claude CLI (`test/fixtures/fake-claude.mjs`),
   so they never touch your projects or call Claude. `TEST_SERVER_CMD` runs them against a different server command,
   e.g. `TEST_SERVER_CMD="node other/server.js" pnpm test:api`.
+- `pnpm test:api:postgres` runs the same API tests with Postgres storage. Storage tests run on both SQLite and
+  Postgres. Postgres in tests is PGlite (Postgres compiled to WebAssembly, in-process), so no database server or
+  Docker is needed.
 
 New dependencies must be published at least 14 days before they are installed (`minimumReleaseAge` in
 `pnpm-workspace.yaml`).
 
 ## Storage
 
-Everything is plain files in the folder set by `BPMN_DIR` (default `~/workspace/bpmn-diagrams/`):
+Projects and every saved version are stored in a database:
+
+- **SQLite** (default): one file, `flowboard.sqlite` in the data folder `BPMN_DIR` (default `~/workspace/bpmn-diagrams/`),
+  or wherever `SQLITE_PATH` points. Nothing to install; back it up by copying the file while the server is stopped.
+- **Postgres**: set `DATABASE_URL=postgres://user:password@host:5432/db`. Use it to run several server instances or to
+  use managed backups. `docker compose up -d` starts a local Postgres for trying it
+  (`DATABASE_URL=postgres://flowboard:flowboard@localhost:5432/flowboard`).
+
+The schema is created and upgraded automatically at startup.
+
+### Project folders (import and export)
+
+Earlier versions stored projects as plain files. That layout is still supported for import and export:
 
 ```
 bpmn-diagrams/
@@ -63,7 +78,15 @@ bpmn-diagrams/
       log.jsonl                           <- who saved each version, and notes
 ```
 
-If the server is down, open these files directly with any BPMN tool. Back them up by copying the folder.
+- **First start:** when the database has no projects yet, the project folders found in `BPMN_DIR` are imported with
+  their full history, and their ids stay the same, so existing links keep working. The folders are only read, never
+  changed; later saves go to the database only. Set `IMPORT_ON_FIRST_START=off` to skip this.
+- `pnpm flowboard import --from <folder> [--dry-run]` imports project folders at any time. Projects imported before
+  are skipped. A latest file that was edited outside the app after its last saved version becomes one more version.
+- `pnpm flowboard export --to <folder>` writes every project in this layout, e.g. to open them in other BPMN tools or as
+  a plain-file backup. The target folder must be empty or not exist yet.
+
+The commands use the same settings as the server (`.env`, environment variables).
 
 ## Features
 

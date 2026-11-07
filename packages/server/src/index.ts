@@ -10,3 +10,12 @@ export {
   type PartialConfigInput
 } from './config.ts';
 export type { ChatProvider, ChatRunOptions, ChatRunResult } from './chat/types.ts';
+export {
+  exportToFolder,
+  importFromFolder,
+  openStore,
+  type DocumentStore,
+  type ImportResult,
+  type ProjectSummary,
+  type VersionInfo
+} from './storage/index.ts';

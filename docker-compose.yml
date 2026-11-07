@@ -1,0 +1,24 @@
+# A local Postgres for running the server with Postgres storage:
+#   docker compose up -d
+#   DATABASE_URL=postgres://flowboard:flowboard@localhost:5432/flowboard pnpm start
+# Tests don't need it: they use PGlite (see README, Tests).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: flowboard
+      POSTGRES_PASSWORD: flowboard
+      POSTGRES_DB: flowboard
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowboard -d flowboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:

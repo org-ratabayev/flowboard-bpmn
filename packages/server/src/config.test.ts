@@ -12,12 +12,27 @@ describe('parseConfig', () => {
       host: '0.0.0.0',
       dataDir: path.join(os.homedir(), 'workspace', 'bpmn-diagrams'),
       publicDir: '/srv/public',
+      storage: {
+        kind: 'sqlite',
+        sqlitePath: path.join(os.homedir(), 'workspace', 'bpmn-diagrams', 'flowboard.sqlite'),
+        postgresPoolSize: 10,
+        importOnFirstStart: true
+      },
       chat: {
         enabled: true,
         workDir: path.join(os.tmpdir(), 'bpmn-chat'),
         claudeCode: { bin: 'claude', model: '', timeoutMs: 300000 }
       }
     });
+  });
+
+  it('puts the SQLite file in the data folder unless told otherwise', () => {
+    expect(parseConfig({ publicDir: '/p', dataDir: '/data' }).storage.sqlitePath).toBe('/data/flowboard.sqlite');
+    expect(parseConfig({ publicDir: '/p', storage: { sqlitePath: '/db/x.sqlite' } }).storage.sqlitePath).toBe('/db/x.sqlite');
+  });
+
+  it('requires a connection string for Postgres', () => {
+    expect(() => parseConfig({ publicDir: '/p', storage: { kind: 'postgres' } })).toThrow(/DATABASE_URL/);
   });
 
   it('expands ~ and resolves relative paths', () => {
@@ -41,13 +56,21 @@ describe('configFromEnv', () => {
       port: 8080,
       host: '127.0.0.1',
       dataDir: '/data',
+      storage: { kind: undefined, sqlitePath: undefined, postgresUrl: undefined, postgresPoolSize: undefined, importOnFirstStart: undefined },
       chat: { enabled: false, claudeCode: { bin: '/bin/claude', model: 'sonnet', timeoutMs: 1000 } }
     });
   });
 
+  it('maps storage variables', () => {
+    expect(mergeConfig(configFromEnv({ DATABASE_URL: 'postgres://db/x', PG_POOL_SIZE: '4', IMPORT_ON_FIRST_START: 'off' })).storage)
+      .toEqual({ kind: 'postgres', postgresUrl: 'postgres://db/x', postgresPoolSize: 4, importOnFirstStart: false });
+    expect(mergeConfig(configFromEnv({ DATABASE_URL: 'postgres://db/x', STORAGE: 'sqlite', SQLITE_PATH: '/x.sqlite' })).storage)
+      .toEqual({ kind: 'sqlite', postgresUrl: 'postgres://db/x', sqlitePath: '/x.sqlite' });
+  });
+
   it('leaves unset and empty variables out', () => {
     const merged = mergeConfig(configFromEnv({ CLAUDE_MODEL: '', CHAT: '' }));
-    expect(merged).toEqual({ chat: { claudeCode: {} } });
+    expect(merged).toEqual({ storage: {}, chat: { claudeCode: {} } });
   });
 
   it('treats any CHAT value other than "off" as on', () => {
