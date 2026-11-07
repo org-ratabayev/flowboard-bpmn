@@ -10,15 +10,20 @@
   },
   "scripts": {
     "build": "vite build packages/web --logLevel warn",
-    "start": "vite build packages/web --logLevel warn && node apps/standalone/src/main.ts",
+    "start": "vite build packages/web --logLevel warn && node --disable-warning=ExperimentalWarning apps/standalone/src/main.ts",
+    "flowboard": "node --disable-warning=ExperimentalWarning apps/standalone/src/cli.ts",
     "test": "vitest run && vite build packages/web --logLevel warn && node --test test/*.test.mjs",
     "test:unit": "vitest run",
     "test:api": "vite build packages/web --logLevel warn && node --test test/*.test.mjs",
+    "test:api:postgres": "vite build packages/web --logLevel warn && TEST_STORAGE=postgres node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "license-list": "node scripts/license-list.mjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.11",
+    "@electric-sql/pglite-socket": "0.2.14",
     "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
     "typescript": "7.0.2",
     "vite": "8.3.5",
     "vitest": "5.0.5"

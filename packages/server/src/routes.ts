@@ -3,13 +3,13 @@ import { looksLikeBpmn } from './bpmn.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
 import type { LiveHub } from './live.ts';
-import { isVersionName, type FileStore } from './storage/fileStore.ts';
+import { isVersionName, type DocumentStore } from './storage/index.ts';
 
 const MAX_BODY = 20 * 1024 * 1024;
 const MAX_CHAT_BODY = 60 * 1024 * 1024; // attachments arrive base64-encoded
 
 export interface ApiContext {
-  store: FileStore;
+  store: DocumentStore;
   live: LiveHub;
   chat: ReturnType<typeof createChatService> | null;
 }
@@ -56,12 +56,14 @@ export async function handleApi(
     if (req.method === 'PUT') {
       const body = await readJson(req, MAX_BODY);
       if (!looksLikeBpmn(body.xml)) return send(res, 400, { error: 'Not a BPMN diagram' });
-      const latest = await store.currentVersion(id);
-      if (!body.force && body.baseVersion !== latest) {
-        const versions = await store.listVersions(id);
-        return send(res, 409, { error: 'conflict', latest: versions[0] || null });
-      }
-      const saved = await store.saveVersion(id, body.xml, { author: body.author, note: body.note });
+      const result = await store.saveVersion(id, body.xml, {
+        author: body.author,
+        note: body.note,
+        baseVersion: body.baseVersion,
+        force: !!body.force
+      });
+      if ('conflict' in result) return send(res, 409, { error: 'conflict', latest: result.conflict });
+      const { saved } = result;
       const rev = live.onSaved(id, { xml: body.xml, version: saved.version, author: body.author, clientId: body.client });
       return send(res, 200, { ...saved, rev });
     }
@@ -103,9 +105,9 @@ export async function handleApi(
   if (sub === 'download' && req.method === 'GET') {
     const v = url.searchParams.get('version');
     if (v && !isVersionName(v)) return send(res, 400, { error: 'Bad version' });
-    const data = await store.readFileBytes(id, v || undefined);
-    if (!data) return send(res, 404, { error: 'Not found' });
-    return send(res, 200, data, {
+    const xml = v ? await store.readVersion(id, v) : await store.readLatest(id);
+    if (xml === null) return send(res, 404, { error: 'Not found' });
+    return send(res, 200, Buffer.from(xml), {
       'Content-Type': 'application/xml; charset=utf-8',
       'Content-Disposition': `attachment; filename="${id}${v ? '-' + v : ''}.bpmn"`
     });

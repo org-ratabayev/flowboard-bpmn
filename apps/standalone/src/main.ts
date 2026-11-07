@@ -28,7 +28,13 @@ const config = await loadConfigFromEnv({
 const server = createServer(config);
 const { port } = await server.listen();
 
-console.log(`BPMN editor running. Files are stored in ${config.dataDir}`);
+const where = config.storage.kind === 'postgres' ? 'Postgres' : config.storage.sqlitePath;
+console.log(`BPMN editor running. Projects are stored in ${where}`);
+const imported = server.imported.filter((r) => r.status === 'imported');
+if (imported.length) {
+  console.log(`  Imported ${imported.length} project folder(s) from ${config.dataDir} (the folders were not changed):`);
+  for (const r of imported) console.log(`    ${r.folder} → ${r.id} (${r.versions} versions)`);
+}
 console.log(`  Local:   http://localhost:${port}/`);
 for (const addrs of Object.values(os.networkInterfaces())) {
   for (const a of addrs || []) {

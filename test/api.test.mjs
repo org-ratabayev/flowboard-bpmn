@@ -16,9 +16,9 @@ before(async () => {
 });
 after(() => server.stop());
 
-const readLog = async (id) =>
-  (await fs.readFile(path.join(server.dataDir, id, 'history', 'log.jsonl'), 'utf8'))
-    .trim().split('\n').map((line) => JSON.parse(line));
+// Oldest first, like the lines of the former log.jsonl.
+const readLog = async (id) => (await req('GET', `/api/projects/${id}/history`)).body.reverse();
+const readLatest = async (id) => (await req('GET', `/api/projects/${id}`)).body.xml;
 
 describe('projects', () => {
   it('lists nothing for an empty storage folder', async () => {
@@ -27,30 +27,27 @@ describe('projects', () => {
     assert.deepEqual(res.body, []);
   });
 
-  it('creates a project with defaults and writes the documented file layout', async () => {
+  it('creates a project with defaults and a first version', async () => {
     const res = await req('POST', '/api/projects', {});
     assert.equal(res.status, 201);
     assert.deepEqual(res.body, { id: 'untitled-diagram' });
 
-    const dir = path.join(server.dataDir, 'untitled-diagram');
-    const meta = JSON.parse(await fs.readFile(path.join(dir, 'project.json'), 'utf8'));
-    assert.equal(meta.name, 'Untitled diagram');
-    assert.ok(!Number.isNaN(Date.parse(meta.createdAt)));
+    const project = (await req('GET', '/api/projects/untitled-diagram')).body;
+    assert.equal(project.name, 'Untitled diagram');
+    assert.match(project.xml, /<bpmn:startEvent id="StartEvent_1"/);
+    assert.match(project.version, VERSION_RE);
+    const listed = (await req('GET', '/api/projects')).body.find((p) => p.id === 'untitled-diagram');
+    assert.ok(!Number.isNaN(Date.parse(listed.createdAt)));
 
-    const latest = await fs.readFile(path.join(dir, 'untitled-diagram.bpmn'), 'utf8');
-    assert.match(latest, /<bpmn:startEvent id="StartEvent_1"/);
-
-    const versions = (await fs.readdir(path.join(dir, 'history'))).filter((f) => f.endsWith('.bpmn'));
-    assert.equal(versions.length, 1);
-    assert.match(versions[0].slice(0, -5), VERSION_RE);
-    assert.equal(await fs.readFile(path.join(dir, 'history', versions[0]), 'utf8'), latest);
-
-    const [entry] = await readLog('untitled-diagram');
-    assert.equal(entry.version, versions[0].slice(0, -5));
+    const log = await readLog('untitled-diagram');
+    assert.equal(log.length, 1);
+    const [entry] = log;
+    assert.equal(entry.version, project.version);
     assert.equal(entry.author, null);
     assert.equal(entry.note, 'Created');
-    assert.equal(entry.size, Buffer.byteLength(latest));
+    assert.equal(entry.size, Buffer.byteLength(project.xml));
     assert.ok(!Number.isNaN(Date.parse(entry.at)));
+    assert.equal((await req('GET', `/api/projects/untitled-diagram/history/${entry.version}`)).body.xml, project.xml);
   });
 
   it('derives ids from names and numbers duplicates', async () => {
@@ -60,9 +57,9 @@ describe('projects', () => {
     assert.equal(first.body.id, 'order-flow');
     assert.equal(second.body.id, 'order-flow-2');
 
-    const meta = JSON.parse(await fs.readFile(path.join(server.dataDir, 'order-flow', 'project.json'), 'utf8'));
-    assert.equal(meta.name, 'Order Flow!');
-    assert.equal(await fs.readFile(path.join(server.dataDir, 'order-flow', 'order-flow.bpmn'), 'utf8'), xml);
+    const project = (await req('GET', '/api/projects/order-flow')).body;
+    assert.equal(project.name, 'Order Flow!');
+    assert.equal(project.xml, xml);
     assert.equal((await readLog('order-flow'))[0].author, 'Alice');
   });
 
@@ -92,13 +89,6 @@ describe('projects', () => {
     assert.equal(flow.name, 'Order Flow!');
     assert.equal(flow.updatedBy, 'Alice');
     assert.equal(flow.versionCount, 1);
-  });
-
-  it('ignores folders that are not projects', async () => {
-    await fs.mkdir(path.join(server.dataDir, 'Not-A-Project'));
-    await fs.mkdir(path.join(server.dataDir, 'no-latest-file'));
-    const res = await req('GET', '/api/projects');
-    assert.ok(!res.body.some((p) => p.id === 'Not-A-Project' || p.id === 'no-latest-file'));
   });
 
   it('returns a project with its latest version', async () => {
@@ -153,7 +143,7 @@ describe('saving', () => {
     assert.ok(!Number.isNaN(Date.parse(res.body.at)));
     assert.equal(typeof res.body.rev, 'number');
 
-    assert.equal(await fs.readFile(path.join(server.dataDir, id, `${id}.bpmn`), 'utf8'), xml);
+    assert.equal(await readLatest(id), xml);
     const log = await readLog(id);
     assert.equal(log.length, 2);
     assert.equal(log[1].version, res.body.version);
@@ -163,7 +153,7 @@ describe('saving', () => {
   });
 
   it('rejects a save based on an older or missing version', async () => {
-    const before = await fs.readFile(path.join(server.dataDir, id, `${id}.bpmn`), 'utf8');
+    const before = await readLatest(id);
     for (const baseVersion of ['2000-01-01T00-00-00-000Z', undefined]) {
       const res = await req('PUT', `/api/projects/${id}`, { xml: diagram('Stale'), baseVersion });
       assert.equal(res.status, 409);
@@ -171,7 +161,8 @@ describe('saving', () => {
       assert.equal(res.body.latest.version, base);
       assert.equal(res.body.latest.author, 'Bob');
     }
-    assert.equal(await fs.readFile(path.join(server.dataDir, id, `${id}.bpmn`), 'utf8'), before);
+    assert.equal(await readLatest(id), before);
+    assert.equal((await readLog(id)).length, 2);
   });
 
   it('saves anyway when forced', async () => {

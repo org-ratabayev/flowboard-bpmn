@@ -28,11 +28,39 @@ async function freePort() {
   return port;
 }
 
-export async function startServer(env = {}) {
+/** Starts an empty Postgres (PGlite) on a free port; resolves with its URL and a stop function. */
+async function startPostgres() {
+  const port = await freePort();
+  const child = spawn(process.execPath, [path.join(ROOT, 'test', 'helpers', 'pglite-server.mjs'), String(port)], {
+    stdio: ['ignore', 'pipe', 'inherit']
+  });
+  await new Promise((resolve, reject) => {
+    child.stdout.on('data', (d) => { if (String(d).includes('ready')) resolve(); });
+    child.once('exit', (code) => reject(new Error(`PGlite exited with ${code}`)));
+  });
+  return {
+    url: `postgres://postgres@127.0.0.1:${port}/postgres`,
+    async stop() {
+      if (child.exitCode === null) {
+        child.kill();
+        await once(child, 'exit');
+      }
+    }
+  };
+}
+
+/**
+ * Starts the server with its own storage. TEST_STORAGE=postgres uses a fresh Postgres
+ * (PGlite) per server instead of SQLite.
+ */
+export async function startServer(env = {}, { files } = {}) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'bpmn-test-'));
   const dataDir = path.join(tmp, 'data');
+  if (files) await files(dataDir);
   const port = await freePort();
-  const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node apps/standalone/src/main.ts').split(' ');
+  const postgres = process.env.TEST_STORAGE === 'postgres' ? await startPostgres() : null;
+  const storageEnv = postgres ? { DATABASE_URL: postgres.url, PG_POOL_SIZE: '1' } : { DATABASE_URL: '', STORAGE: 'sqlite' };
+  const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node --disable-warning=ExperimentalWarning apps/standalone/src/main.ts').split(' ');
   const child = spawn(cmd, args, {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -46,6 +74,7 @@ export async function startServer(env = {}) {
       CLAUDE_BIN: FAKE_CLAUDE,
       CLAUDE_MODEL: '',
       CHAT_TIMEOUT_MS: '10000',
+      ...storageEnv,
       ...env
     }
   });
@@ -54,13 +83,18 @@ export async function startServer(env = {}) {
   child.stderr.on('data', (d) => { output += d; });
 
   const base = `http://127.0.0.1:${port}`;
+  const fail = async (message) => {
+    if (child.exitCode === null) child.kill();
+    await postgres?.stop();
+    throw new Error(`${message}:\n${output}`);
+  };
   for (let i = 0; ; i++) {
-    if (child.exitCode !== null) throw new Error(`Server exited during startup:\n${output}`);
+    if (child.exitCode !== null) await fail('Server exited during startup');
     try {
       await fetch(`${base}/licenses`);
       break;
     } catch {
-      if (i > 200) throw new Error(`Server did not start:\n${output}`);
+      if (i > 200) await fail('Server did not start');
       await sleep(25);
     }
   }
@@ -76,6 +110,7 @@ export async function startServer(env = {}) {
         child.kill();
         await once(child, 'exit');
       }
+      await postgres?.stop();
       await fs.rm(tmp, { recursive: true, force: true });
     }
   };
