@@ -43,7 +43,7 @@ describe('projects', () => {
     assert.equal(log.length, 1);
     const [entry] = log;
     assert.equal(entry.version, project.version);
-    assert.equal(entry.author, null);
+    assert.equal(entry.author, 'Tester'); // the signed-in user
     assert.equal(entry.note, 'Created');
     assert.equal(entry.size, Buffer.byteLength(project.xml));
     assert.ok(!Number.isNaN(Date.parse(entry.at)));
@@ -52,7 +52,7 @@ describe('projects', () => {
 
   it('derives ids from names and numbers duplicates', async () => {
     const xml = diagram('Imported');
-    const first = await req('POST', '/api/projects', { name: '  Order Flow!  ', xml, author: 'Alice' });
+    const first = await server.as('Alice')('POST', '/api/projects', { name: '  Order Flow!  ', xml });
     const second = await req('POST', '/api/projects', { name: 'Order Flow!' });
     assert.equal(first.body.id, 'order-flow');
     assert.equal(second.body.id, 'order-flow-2');
@@ -137,7 +137,7 @@ describe('saving', () => {
 
   it('saves a new version on top of the latest one', async () => {
     const xml = diagram('Second');
-    const res = await req('PUT', `/api/projects/${id}`, { xml, baseVersion: base, author: 'Bob', note: 'Added a task' });
+    const res = await server.as('Bob')('PUT', `/api/projects/${id}`, { xml, baseVersion: base, note: 'Added a task' });
     assert.equal(res.status, 200);
     assert.match(res.body.version, VERSION_RE);
     assert.ok(!Number.isNaN(Date.parse(res.body.at)));
@@ -184,7 +184,7 @@ describe('history and download', () => {
   before(async () => {
     id = (await req('POST', '/api/projects', { name: 'History test', xml: diagram('One') })).body.id;
     const first = (await req('GET', `/api/projects/${id}`)).body.version;
-    await req('PUT', `/api/projects/${id}`, { xml: diagram('Two'), baseVersion: first, author: 'Carol', note: 'Second' });
+    await server.as('Carol')('PUT', `/api/projects/${id}`, { xml: diagram('Two'), baseVersion: first, note: 'Second' });
     versions = (await req('GET', `/api/projects/${id}/history`)).body;
   });
 

@@ -12,7 +12,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: path.join(import.meta.dirname, 'index.html'),
-        editor: path.join(import.meta.dirname, 'editor.html')
+        editor: path.join(import.meta.dirname, 'editor.html'),
+        login: path.join(import.meta.dirname, 'login.html')
       }
     }
   }

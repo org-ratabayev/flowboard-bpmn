@@ -99,12 +99,34 @@ export async function startServer(env = {}, { files } = {}) {
     }
   }
 
+  // dev sign-in: one session cookie per user name
+  const sessions = new Map();
+  async function signIn(name) {
+    if (!sessions.has(name)) {
+      const res = await fetch(`${base}/auth/dev/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: base },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error(`Sign-in as ${name} failed: ${res.status} ${await res.text()}`);
+      sessions.set(name, res.headers.get('set-cookie').split(';')[0]);
+    }
+    return sessions.get(name);
+  }
+  /** Request helper signed in as `name`. */
+  const as = (name) => async (method, urlPath, body) => request(base, method, urlPath, body, { cookie: await signIn(name) });
+
   return {
     base,
     dataDir,
     chatDir: path.join(tmp, 'bpmn-chat'),
     output: () => output,
-    request: (method, urlPath, body) => request(base, method, urlPath, body),
+    /** Signed in as "Tester". */
+    request: as('Tester'),
+    as,
+    signIn,
+    /** Without a session. */
+    anonymous: (method, urlPath, body, options) => request(base, method, urlPath, body, options),
     async stop() {
       if (child.exitCode === null) {
         child.kill();
@@ -116,9 +138,14 @@ export async function startServer(env = {}, { files } = {}) {
   };
 }
 
-/** JSON request helper: returns { status, headers, body } with body parsed when it is JSON. */
-export async function request(base, method, urlPath, body) {
-  const init = { method, headers: {} };
+/**
+ * JSON request helper: returns { status, headers, body } with body parsed when it is JSON.
+ * Sends Origin like a browser on the same site (unless headers.Origin is null) and the given cookie.
+ */
+export async function request(base, method, urlPath, body, { cookie, headers = {} } = {}) {
+  const init = { method, headers: { Origin: base, ...headers }, redirect: 'manual' };
+  if (init.headers.Origin === null) delete init.headers.Origin;
+  if (cookie) init.headers.Cookie = cookie;
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
@@ -152,11 +179,14 @@ export function diagram(label = 'Task') {
  * `next(event, match)` resolves with the first not-yet-consumed event of that name
  * whose data satisfies `match`.
  */
-export async function openLive(base, projectId, clientId, name) {
+export async function openLive(server, projectId, clientId, name = 'Tester') {
+  const base = server.base;
   const controller = new AbortController();
   const query = new URLSearchParams({ client: clientId });
-  if (name) query.set('name', name);
-  const res = await fetch(`${base}/api/projects/${projectId}/live?${query}`, { signal: controller.signal });
+  const res = await fetch(`${base}/api/projects/${projectId}/live?${query}`, {
+    signal: controller.signal,
+    headers: { Cookie: await server.signIn(name) }
+  });
   if (res.status !== 200) throw new Error(`live stream failed with ${res.status}`);
 
   const queue = [];
@@ -201,7 +231,7 @@ export async function openLive(base, projectId, clientId, name) {
         waiters.push({ event, match, resolve, timer });
       });
     },
-    post: (body) => request(base, 'POST', `/api/projects/${projectId}/live`, { client: clientId, ...body }),
+    post: (body) => server.as(name)('POST', `/api/projects/${projectId}/live`, { client: clientId, ...body }),
     close: () => controller.abort()
   };
 }

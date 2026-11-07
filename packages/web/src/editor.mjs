@@ -18,6 +18,7 @@ import MinimapModule from 'diagram-js-minimap';
 import { diff } from 'bpmn-js-differ';
 import { layoutProcess } from 'bpmn-auto-layout';
 import lintConfig from './lint-config.mjs';
+import './session.mjs';
 import { createLive } from './live.mjs';
 
 const id = decodeURIComponent(location.pathname.split('/')[2]);
@@ -86,8 +87,6 @@ function versionDate(v) {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-
-function author() { return $('author').value.trim(); }
 
 function downloadBlob(blob, filename) {
   const a = document.createElement('a');
@@ -220,7 +219,6 @@ function startLive() {
     api,
     modeler,
     avatarsEl: $('participants'),
-    getName: author,
     onHello: async (hello, previousRev) => {
       if (state.viewing) return;
       if (hello.xml && hello.rev !== previousRev) {
@@ -289,7 +287,7 @@ async function save({ force = false } = {}) {
     const res = await fetch(api, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ xml, baseVersion: state.baseVersion, author: author(), note, force, client: live?.me.id })
+      body: JSON.stringify({ xml, baseVersion: state.baseVersion, note, force, client: live?.me.id })
     });
     const body = await res.json();
     if (res.status === 409) {
@@ -632,12 +630,6 @@ async function sendChat() {
 }
 
 // ---------- wiring ----------
-
-$('author').value = prefs.get('author', '');
-$('author').addEventListener('change', () => {
-  prefs.set('author', author());
-  live?.setName();
-});
 
 function togglePanel(panelId, prefKey, force) {
   const el = $(panelId);

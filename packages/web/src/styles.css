@@ -60,7 +60,11 @@ input[type="text"] {
 .topbar .spacer { flex: 1; }
 .topbar .name-input { min-width: 220px; font-weight: 600; border-color: transparent; }
 .topbar .name-input:hover, .topbar .name-input:focus { border-color: var(--border); }
-.topbar .author-input { width: 140px; }
+.me { display: inline-flex; align-items: center; gap: 8px; }
+.me .me-name { font-size: 13px; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.login { max-width: 480px; }
+.error { color: var(--danger); }
 .status { color: var(--muted); font-size: 13px; }
 .status.dirty { color: #b26a00; }
 .status.ok { color: var(--ok); }

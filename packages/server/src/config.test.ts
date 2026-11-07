@@ -12,6 +12,11 @@ describe('parseConfig', () => {
       host: '0.0.0.0',
       dataDir: path.join(os.homedir(), 'workspace', 'bpmn-diagrams'),
       publicDir: '/srv/public',
+      auth: {
+        kind: 'dev',
+        sessionDays: 30,
+        trustedHeaders: { subjectHeader: 'x-forwarded-user', proxySecretHeader: 'x-proxy-secret', trustedProxies: [] }
+      },
       storage: {
         kind: 'sqlite',
         sqlitePath: path.join(os.homedir(), 'workspace', 'bpmn-diagrams', 'flowboard.sqlite'),
@@ -56,6 +61,7 @@ describe('configFromEnv', () => {
       port: 8080,
       host: '127.0.0.1',
       dataDir: '/data',
+      auth: { trustedHeaders: {} },
       storage: { kind: undefined, sqlitePath: undefined, postgresUrl: undefined, postgresPoolSize: undefined, importOnFirstStart: undefined },
       chat: { enabled: false, claudeCode: { bin: '/bin/claude', model: 'sonnet', timeoutMs: 1000 } }
     });
@@ -70,7 +76,24 @@ describe('configFromEnv', () => {
 
   it('leaves unset and empty variables out', () => {
     const merged = mergeConfig(configFromEnv({ CLAUDE_MODEL: '', CHAT: '' }));
-    expect(merged).toEqual({ storage: {}, chat: { claudeCode: {} } });
+    expect(merged).toEqual({ auth: { trustedHeaders: {} }, storage: {}, chat: { claudeCode: {} } });
+  });
+
+  it('maps auth variables', () => {
+    expect(mergeConfig(configFromEnv({
+      AUTH: 'trusted-headers', PUBLIC_ORIGIN: 'https://bpmn.example.com', SESSION_DAYS: '7',
+      AUTH_SUBJECT_HEADER: 'X-User', AUTH_PROXY_SECRET: 'secret', AUTH_TRUSTED_PROXIES: '10.0.0.0/8, ::1'
+    }))).toMatchObject({
+      publicOrigin: 'https://bpmn.example.com',
+      auth: { kind: 'trusted-headers', sessionDays: 7, trustedHeaders: { subjectHeader: 'x-user', proxySecret: 'secret', trustedProxies: ['10.0.0.0/8', '::1'] } }
+    });
+  });
+
+  it('validates the public origin and trusted-headers settings', () => {
+    expect(parseConfig({ publicDir: '/p', publicOrigin: 'https://bpmn.example.com/' }).publicOrigin).toBe('https://bpmn.example.com');
+    expect(() => parseConfig({ publicDir: '/p', publicOrigin: 'https://bpmn.example.com/app' })).toThrow(/http\(s\) origin/);
+    expect(() => parseConfig({ publicDir: '/p', auth: { kind: 'trusted-headers' } })).toThrow(/verify the proxy/);
+    expect(() => parseConfig({ publicDir: '/p', auth: { kind: 'trusted-headers', trustedHeaders: { proxySecret: 'short' } } })).toThrow();
   });
 
   it('treats any CHAT value other than "off" as on', () => {

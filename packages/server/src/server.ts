@@ -7,6 +7,9 @@ import { createClaudeCodeProvider } from './chat/claudeCode.ts';
 import { parseConfig, type Config, type ConfigInput } from './config.ts';
 import { HttpError, send, serveStatic } from './http.ts';
 import { createLiveHub } from './live.ts';
+import { createAuth, type Auth, type Identity } from './auth/index.ts';
+import { createAuthStore } from './auth/authStore.ts';
+import { isSameOrigin } from './auth/requestChecks.ts';
 import { handleApi, type ApiContext } from './routes.ts';
 import { importFromFolder, openStore, type DocumentStore, type ImportResult } from './storage/index.ts';
 
@@ -28,7 +31,8 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   const config = parseConfig(input);
   const publicDir = config.publicDir;
   let store: DocumentStore | null = null;
-  const ctx: Omit<ApiContext, 'store'> = {
+  let auth: Auth | null = null;
+  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth'> = {
     live: createLiveHub(),
     chat: config.chat.enabled
       ? createChatService({ provider: createClaudeCodeProvider(config.chat.claudeCode), workDir: config.chat.workDir })
@@ -39,7 +43,31 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
     const url = new URL(req.url || '/', 'http://localhost');
     try {
       const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-      if (parts[0] === 'api') return await handleApi({ ...ctx, store: store! }, req, res, parts, url);
+      const isApi = parts[0] === 'api';
+      const changesData = !['GET', 'HEAD', 'OPTIONS'].includes(req.method || 'GET');
+      if (changesData && (isApi || parts[0] === 'auth') && !isSameOrigin(req, config.publicOrigin)) {
+        return send(res, 403, { error: 'Cross-site request refused' });
+      }
+      if (parts[0] === 'auth') {
+        if (await auth!.handle(req, res, parts)) return;
+        return send(res, 404, 'Not found');
+      }
+
+      const isPublic = parts[0] === 'assets' || (parts.length === 1 && ['licenses', 'favicon.ico', 'login.html'].includes(parts[0]));
+      let identity: Identity | null = null;
+      if (!isPublic) {
+        identity = await auth!.identify(req);
+        if (!identity) {
+          const isPage = req.method === 'GET' && (parts.length === 0 || (parts[0] === 'p' && parts.length === 2));
+          if (isPage) {
+            res.writeHead(302, { Location: `/auth/login?returnTo=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
+            return res.end();
+          }
+          return send(res, 401, isApi ? { error: 'unauthorized', loginUrl: '/auth/login' } : 'Unauthorized');
+        }
+      }
+
+      if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth! }, req, res, parts, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
       if (parts.length === 0) return await serveStatic(res, path.join(publicDir, 'index.html'));
       if (parts[0] === 'p' && parts.length === 2) return await serveStatic(res, path.join(publicDir, 'editor.html'));
@@ -63,6 +91,9 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
     imported: [],
     async listen() {
       store = await openStore(config.storage);
+      const authStore = createAuthStore(store.db);
+      auth = createAuth(config, authStore);
+      await authStore.deleteExpiredSessions();
       if (config.storage.importOnFirstStart && (await store.countProjects()) === 0) {
         server.imported = await importFromFolder(store, config.dataDir);
       }
