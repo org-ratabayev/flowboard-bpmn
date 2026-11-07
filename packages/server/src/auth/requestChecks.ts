@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
 
 export function parseCookies(req: IncomingMessage): Map<string, string> {
@@ -17,10 +17,20 @@ export function parseCookies(req: IncomingMessage): Map<string, string> {
   return jar;
 }
 
-export function serializeCookie(name: string, value: string, options: { maxAgeSeconds: number; secure: boolean }): string {
-  const parts = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${options.maxAgeSeconds}`];
+export function serializeCookie(
+  name: string,
+  value: string,
+  options: { maxAgeSeconds: number; secure: boolean; sameSite?: 'Lax' | 'Strict' }
+): string {
+  const parts = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', `SameSite=${options.sameSite ?? 'Lax'}`, `Max-Age=${options.maxAgeSeconds}`];
   if (options.secure) parts.push('Secure');
   return parts.join('; ');
+}
+
+/** Adds a Set-Cookie header without replacing ones set earlier in the same response. */
+export function appendSetCookie(res: ServerResponse, cookie: string): void {
+  const current = res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie', [...(Array.isArray(current) ? current : current ? [String(current)] : []), cookie]);
 }
 
 /** True when the request was made over HTTPS, directly or (per publicOrigin) behind a proxy. */

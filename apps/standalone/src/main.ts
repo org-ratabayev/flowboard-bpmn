@@ -42,6 +42,16 @@ for (const addrs of Object.values(os.networkInterfaces())) {
   }
 }
 
+const providers = config.llm.providers.map((p) => `${p.label} (${p.credentials.from})`).join(', ') || 'none configured';
+console.log(`  AI: ${config.llm.mode} mode; providers: ${providers}`);
+if (server.appSecretSource === 'generated' || server.appSecretSource === 'file') {
+  console.warn(
+    `  APP_SECRET is not set: users' AI keys are protected with a secret ${server.appSecretSource === 'generated' ? 'just generated in' : 'kept in'} ` +
+    `${config.dataDir}/app-secret. Back it up separately from the database (keys cannot be decrypted without it), ` +
+    'or set APP_SECRET in .env.'
+  );
+}
+
 const loopback = ['127.0.0.1', '::1', 'localhost'].includes(config.host);
 if (config.auth.kind === 'dev' && !loopback) {
   console.warn(

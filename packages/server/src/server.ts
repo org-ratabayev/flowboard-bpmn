@@ -13,6 +13,10 @@ import { isSameOrigin } from './auth/requestChecks.ts';
 import { createTokenStore, type TokenStore } from './auth/tokenStore.ts';
 import { createAccessStore, type AccessStore } from './storage/accessStore.ts';
 import { createLocalEvents, createPostgresEvents, type AccessEvents } from './events.ts';
+import { resolveAppSecret } from './appSecret.ts';
+import { createCatalog } from './llm/catalog.ts';
+import { createKeyStore } from './llm/keyStore.ts';
+import { forgetKeyring, handleLlm, type LlmContext } from './llm/routes.ts';
 import { handleApi, type ApiContext } from './routes.ts';
 import { importFromFolder, openStore, type DocumentStore, type ImportResult } from './storage/index.ts';
 
@@ -28,6 +32,8 @@ export interface BpmnServer {
   close(): Promise<void>;
   /** Projects imported from dataDir during listen(), if any. */
   imported: ImportResult[];
+  /** Where APP_SECRET came from, when users can save their own AI keys (to warn about a generated one). */
+  appSecretSource: 'env' | 'file' | 'generated' | null;
 }
 
 export function createServer(input: Config | ConfigInput): BpmnServer {
@@ -38,6 +44,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   let tokens: TokenStore | null = null;
   let access: AccessStore | null = null;
   let events: AccessEvents | null = null;
+  let llm: LlmContext | null = null;
   const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'events' | 'viaToken'> = {
     live: createLiveHub(),
     chat: config.chat.enabled
@@ -59,6 +66,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         return send(res, 403, { error: 'Cross-site request refused' });
       }
       if (parts[0] === 'auth') {
+        if (req.method === 'POST' && parts.join('/') === 'auth/logout') await forgetKeyring(llm?.keys ?? null, req, res, config.publicOrigin);
         if (await auth!.handle(req, res, parts)) return;
         return send(res, 404, 'Not found');
       }
@@ -79,6 +87,9 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         }
       }
 
+      if (isApi && parts[1] === 'llm') {
+        return await handleLlm(llm!, { user: identity!, upstreamToken: auth!.upstreamToken(req), viaToken }, req, res, parts.slice(2));
+      }
       if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth!, tokens: tokens!, access: access!, events: events!, viaToken }, req, res, parts, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
       if (parts.length === 0) return await serveStatic(res, path.join(publicDir, 'index.html'));
@@ -103,6 +114,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
     config,
     httpServer,
     imported: [],
+    appSecretSource: null,
     async listen() {
       store = await openStore(config.storage);
       const authStore = createAuthStore(store.db);
@@ -114,6 +126,15 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         : createLocalEvents();
       const accessStore = access;
       // when access to a project changes, everyone connected to it learns their new role at once
+      const catalog = createCatalog(config.llm.providers);
+      if (catalog.entries.some((p) => p.credentials.from === 'user-key')) {
+        const { secret, source } = resolveAppSecret(config);
+        server.appSecretSource = source;
+        llm = { mode: config.llm.mode, catalog, keys: createKeyStore(store.db, secret), publicOrigin: config.publicOrigin };
+        await llm.keys!.removeUnused(365);
+      } else {
+        llm = { mode: config.llm.mode, catalog, keys: null, publicOrigin: config.publicOrigin };
+      }
       events.subscribe((documentId) => {
         ctx.live.refreshAccess(documentId, (userId) => accessStore.roleOf(userId, documentId))
           .catch((err) => console.error('Refreshing live access failed:', err));

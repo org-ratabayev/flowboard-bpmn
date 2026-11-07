@@ -59,8 +59,11 @@ export async function startServer(env = {}, { files } = {}) {
   if (files) await files(dataDir);
   const port = await freePort();
   const postgres = process.env.TEST_STORAGE === 'postgres' ? await startPostgres() : null;
-  // PGlite serves one session, so no extra LISTEN connection (cross-instance events are unit-tested)
-  const storageEnv = postgres ? { DATABASE_URL: postgres.url, PG_POOL_SIZE: '1', PG_LISTEN: 'off' } : { DATABASE_URL: '', STORAGE: 'sqlite' };
+  // PGlite serves one session, so no extra LISTEN connection (cross-instance events are unit-tested);
+  // Postgres also needs APP_SECRET, which SQLite generates by itself
+  const storageEnv = postgres
+    ? { DATABASE_URL: postgres.url, PG_POOL_SIZE: '1', PG_LISTEN: 'off', APP_SECRET: 'test-app-secret-'.padEnd(48, '0') }
+    : { DATABASE_URL: '', STORAGE: 'sqlite', APP_SECRET: '' };
   // PUBLIC_ORIGIN=self: the server's own address, which is only known here
   if (env.PUBLIC_ORIGIN === 'self') env = { ...env, PUBLIC_ORIGIN: `http://127.0.0.1:${port}` };
   const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node --disable-warning=ExperimentalWarning apps/standalone/src/main.ts').split(' ');

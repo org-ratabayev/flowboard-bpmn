@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Config } from '../config.ts';
 import { send } from '../http.ts';
 import type { AuthStore, Identity } from './authStore.ts';
-import { isSecure, parseCookies, serializeCookie } from './requestChecks.ts';
+import { appendSetCookie, isSecure, parseCookies, serializeCookie } from './requestChecks.ts';
 
 export const SESSION_COOKIE = 'flowboard_session';
 
@@ -49,7 +49,7 @@ export function sessionHelpers(config: Config, store: AuthStore) {
     async logout(req: IncomingMessage, res: ServerResponse, redirect: string): Promise<void> {
       const token = parseCookies(req).get(SESSION_COOKIE);
       if (token) await store.deleteSession(token);
-      res.setHeader('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeSeconds: 0, secure: secure(req) }));
+      appendSetCookie(res, serializeCookie(SESSION_COOKIE, '', { maxAgeSeconds: 0, secure: secure(req) }));
       send(res, 200, { redirect });
     }
   };
