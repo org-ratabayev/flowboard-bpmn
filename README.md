@@ -16,6 +16,17 @@ Open http://localhost:3000. The startup log also prints your network address(es)
 For machine-specific settings (storage folder, port, chat options), copy `.env.example` to `.env` and edit it.
 `.env` is git-ignored; variables set in the environment override it.
 
+## Tests
+
+```sh
+npm test
+```
+
+The tests in `test/` check the HTTP API from the outside: each test file starts the server as a separate process with
+a temporary storage folder and a fake Claude CLI (`test/fixtures/fake-claude.mjs`), so they never touch your projects
+or call Claude. They use Node's built-in test runner, so nothing needs to be installed. `TEST_SERVER_CMD` runs the same
+tests against a different server command, e.g. `TEST_SERVER_CMD="node other/server.js" npm test`.
+
 ## Storage
 
 Everything is plain files in the folder set by `BPMN_DIR` (default `~/workspace/bpmn-diagrams/`):
