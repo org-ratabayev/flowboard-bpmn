@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { DEFAULT_PERSONAL_PROVIDERS, type CredentialsAdapter, type ProviderEntry } from './llm/catalog.ts';
 
 const expandHome = (p: string) => p.replace(/^~(?=$|\/)/, os.homedir());
 const absolutePath = z.string().min(1).transform((p) => path.resolve(expandHome(p)));
@@ -15,11 +16,32 @@ const origin = z.string().transform((value, ctx) => {
   return z.NEVER;
 });
 
+const providerSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, 'lowercase letters, digits and dashes'),
+    label: z.string().min(1).max(60),
+    type: z.enum(['anthropic', 'openai-compatible']),
+    baseUrl: z.url().optional(),
+    models: z.array(z.string().min(1)).default([]),
+    defaultModel: z.string().min(1).optional(),
+    credentials: z.discriminatedUnion('from', [
+      z.object({ from: z.literal('user-key') }),
+      z.object({ from: z.literal('server'), secretEnv: z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'an environment variable name') }),
+      z.object({ from: z.literal('identity') }),
+      z.object({ from: z.literal('adapter'), adapter: z.custom<CredentialsAdapter>((v) => typeof v === 'function', 'a function (only from an APP_CONFIG module)') })
+    ]),
+    headers: z.record(z.string(), z.string()).default({}),
+    userIdHeader: z.string().min(1).optional()
+  })
+  .refine((p) => p.type !== 'openai-compatible' || p.baseUrl, { message: 'openai-compatible providers need a baseUrl', path: ['baseUrl'] });
+
 const baseSchema = z.object({
   port: z.number().int().min(0).max(65535).default(3000),
   host: z.string().min(1).default('0.0.0.0'),
   /** Public address of the app, e.g. https://bpmn.example.com; used for cookies, CSRF checks and redirects. */
   publicOrigin: origin.optional(),
+  /** Server secret (32+ characters); with Postgres every instance must use the same one. See appSecret.ts. */
+  appSecret: z.string().min(32, 'APP_SECRET must have at least 32 characters').optional(),
   auth: z
     .object({
       /**
@@ -48,6 +70,8 @@ const baseSchema = z.object({
           emailHeader: z.string().min(1).optional(),
           /** The proxy proves itself with this header and secret ... */
           proxySecretHeader: z.string().min(1).default('x-proxy-secret'),
+          /** Header in which the proxy forwards the user's access token (for AI providers using the user's identity). */
+          tokenHeader: z.string().min(1).optional(),
           proxySecret: z.string().min(16).optional(),
           /** ... or by connecting from one of these addresses / CIDR ranges. */
           trustedProxies: z.array(z.string().min(1)).default([])
@@ -75,6 +99,17 @@ const baseSchema = z.object({
   publicDir: absolutePath,
   /** Third-party license list served at /licenses. */
   licensesFile: absolutePath.optional(),
+  llm: z
+    .object({
+      /**
+       * personal: every provider needs the user's own key (the server pays for nothing).
+       * managed: the organization configures providers and their credentials.
+       */
+      mode: z.enum(['personal', 'managed']).default('personal'),
+      /** The providers users can choose from; defaults depend on the mode (see llm/catalog.ts). */
+      providers: z.array(providerSchema).optional()
+    })
+    .prefault({}),
   chat: z
     .object({
       enabled: z.boolean().default(true),
@@ -105,9 +140,21 @@ export const configSchema = baseSchema
     message: 'oidc auth needs OIDC_ISSUER, OIDC_CLIENT_ID and PUBLIC_ORIGIN (the callback is <PUBLIC_ORIGIN>/auth/callback)',
     path: ['auth', 'oidc']
   })
+  .refine((c) => c.llm.mode !== 'personal' || (c.llm.providers ?? []).every((p) => p.credentials.from === 'user-key'), {
+    message: "in personal mode every AI provider must use the user's own key (credentials.from = 'user-key'); use LLM_MODE=managed for others",
+    path: ['llm', 'providers']
+  })
+  .refine((c) => new Set((c.llm.providers ?? []).map((p) => p.id)).size === (c.llm.providers ?? []).length, {
+    message: 'AI provider ids must be unique',
+    path: ['llm', 'providers']
+  })
   .transform((c) => ({
     ...c,
-    storage: { ...c.storage, sqlitePath: c.storage.sqlitePath ?? path.join(c.dataDir, 'flowboard.sqlite') }
+    storage: { ...c.storage, sqlitePath: c.storage.sqlitePath ?? path.join(c.dataDir, 'flowboard.sqlite') },
+    llm: {
+      mode: c.llm.mode,
+      providers: (c.llm.providers ?? (c.llm.mode === 'personal' ? DEFAULT_PERSONAL_PROVIDERS : [])) as ProviderEntry[]
+    }
   }));
 
 export type ConfigInput = z.input<typeof configSchema>;
@@ -134,11 +181,19 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
     if (!Number.isFinite(n)) throw new Error(`Invalid configuration: ${name} must be a number, got "${value}"`);
     return n;
   };
+  const json = (name: string) => {
+    try {
+      return JSON.parse(env[name]!);
+    } catch {
+      throw new Error(`Invalid configuration: ${name} must be valid JSON`);
+    }
+  };
   return {
     port: number('PORT'),
     host: env.HOST || undefined,
     dataDir: env.BPMN_DIR || undefined,
     publicOrigin: env.PUBLIC_ORIGIN || undefined,
+    appSecret: env.APP_SECRET || undefined,
     auth: {
       // validated by the schema; an unknown value fails there with a readable message
       kind: (env.AUTH || undefined) as 'dev' | 'trusted-headers' | 'oidc' | undefined,
@@ -155,6 +210,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
         nameHeader: env.AUTH_NAME_HEADER?.toLowerCase() || undefined,
         emailHeader: env.AUTH_EMAIL_HEADER?.toLowerCase() || undefined,
         proxySecretHeader: env.AUTH_PROXY_SECRET_HEADER?.toLowerCase() || undefined,
+        tokenHeader: env.AUTH_TOKEN_HEADER?.toLowerCase() || undefined,
         proxySecret: env.AUTH_PROXY_SECRET || undefined,
         trustedProxies: env.AUTH_TRUSTED_PROXIES ? env.AUTH_TRUSTED_PROXIES.split(',').map((s) => s.trim()).filter(Boolean) : undefined
       }
@@ -166,6 +222,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
       postgresPoolSize: number('PG_POOL_SIZE'),
       postgresListen: env.PG_LISTEN ? env.PG_LISTEN !== 'off' : undefined,
       importOnFirstStart: env.IMPORT_ON_FIRST_START ? env.IMPORT_ON_FIRST_START !== 'off' : undefined
+    },
+    llm: {
+      mode: (env.LLM_MODE || undefined) as 'personal' | 'managed' | undefined,
+      providers: env.LLM_PROVIDERS ? json('LLM_PROVIDERS') : undefined
     },
     chat: {
       enabled: env.CHAT ? env.CHAT !== 'off' : undefined,

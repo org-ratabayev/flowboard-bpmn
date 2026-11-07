@@ -22,6 +22,8 @@ export interface Auth {
   /** Whether signing out is possible in the app (not with trusted-headers, where the proxy decides). */
   canLogout: boolean;
   identify(req: IncomingMessage): Promise<Identity | null>;
+  /** The user's own access token, when the sign-in passes one on (for AI providers using the user's identity). Per request; never stored. */
+  upstreamToken(req: IncomingMessage): string | null;
   /** Handles /auth/… routes; returns false for paths it does not know. */
   handle(req: IncomingMessage, res: ServerResponse, parts: string[]): Promise<boolean>;
 }
@@ -40,6 +42,7 @@ export function createAuth(config: Config, store: AuthStore): Auth {
     kind: 'dev',
     canLogout: true,
     identify: session.identify,
+    upstreamToken: () => null,
     async handle(req, res, parts) {
       const route = `${req.method} /${parts.join('/')}`;
       if (route === 'GET /auth/login') {
@@ -88,6 +91,9 @@ function createTrustedHeadersAuth(config: Config, store: AuthStore): Auth {
   return {
     kind: 'trusted-headers',
     canLogout: false,
+    upstreamToken(req) {
+      return th.tokenHeader && fromProxy(req) ? header(req, th.tokenHeader) : null;
+    },
     async identify(req) {
       if (!fromProxy(req)) return null;
       const subject = header(req, th.subjectHeader);

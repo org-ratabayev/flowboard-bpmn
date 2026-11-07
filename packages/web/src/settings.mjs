@@ -84,3 +84,82 @@ $('tokenList').addEventListener('click', async (e) => {
 });
 
 load();
+
+// ---------- AI providers ----------
+
+const INTRO = {
+  personal: 'The chat uses your own key with one of these providers. Your key is stored encrypted and can only be used ' +
+    'from this browser while you are signed in; signing out deletes it. Tip: create a separate key for this app with a spending limit.',
+  managed: 'Your organization provides these AI models.'
+};
+
+function aiError(message) {
+  $('aiError').textContent = message;
+  $('aiError').hidden = !message;
+}
+
+async function loadAi() {
+  const { mode, providers } = await (await fetch('/api/llm/providers')).json();
+  $('aiIntro').textContent = INTRO[mode] || '';
+  if (!providers.length) {
+    $('aiProviders').innerHTML = '<p class="sub">No AI providers are configured on this server.</p>';
+    return;
+  }
+  $('aiProviders').innerHTML = providers.map((p) => {
+    const models = p.models.length ? `<small>${esc(p.models.join(', '))}</small>` : '';
+    if (p.credentials !== 'user-key') {
+      return `<div class="ai-provider"><div class="ai-name"><b>${esc(p.label)}</b>${models}</div>
+        <span class="${p.ready ? 'ok' : 'sub'}">${p.ready ? 'Ready' : esc(p.reason || 'Not available')}</span></div>`;
+    }
+    const key = p.key
+      ? `<span class="ai-key"><code>${esc(p.key.hint)}</code> saved ${date(p.key.createdAt)} · last used ${p.key.lastUsedAt ? date(p.key.lastUsedAt) : 'never'}</span>
+         <button type="button" data-remove-key="${esc(p.id)}">Remove</button>`
+      : `<form class="ai-key-form" data-provider="${esc(p.id)}">
+           <input type="password" placeholder="Paste your ${esc(p.label)} API key" autocomplete="off" spellcheck="false" required>
+           <button class="primary" type="submit">Save</button>
+         </form>`;
+    return `<div class="ai-provider"><div class="ai-name"><b>${esc(p.label)}</b>${models}</div>${key}</div>`;
+  }).join('');
+}
+
+$('aiProviders').addEventListener('submit', async (e) => {
+  const form = e.target.closest('form.ai-key-form');
+  if (!form) return;
+  e.preventDefault();
+  aiError('');
+  const button = form.querySelector('button');
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  try {
+    const res = await fetch(`/api/llm/keys/${encodeURIComponent(form.dataset.provider)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: form.querySelector('input').value })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return aiError(body.error || `Could not save the key (${res.status})`);
+    toast('Key checked and saved');
+    await loadAi();
+  } finally {
+    if (form.isConnected) { button.disabled = false; button.textContent = 'Save'; }
+  }
+});
+
+// Two clicks to remove, like revoking a token.
+$('aiProviders').addEventListener('click', async (e) => {
+  const button = e.target.closest('button[data-remove-key]');
+  if (!button) return;
+  if (!button.dataset.armed) {
+    button.dataset.armed = '1';
+    button.textContent = 'Confirm remove';
+    button.classList.add('danger');
+    setTimeout(() => { if (button.isConnected) { delete button.dataset.armed; button.textContent = 'Remove'; button.classList.remove('danger'); } }, 4000);
+    return;
+  }
+  const res = await fetch(`/api/llm/keys/${encodeURIComponent(button.dataset.removeKey)}`, { method: 'DELETE' });
+  if (!res.ok) return aiError(`Could not remove the key (${res.status})`);
+  toast('Key removed');
+  await loadAi();
+});
+
+loadAi();

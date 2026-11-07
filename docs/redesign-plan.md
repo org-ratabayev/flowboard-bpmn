@@ -239,11 +239,11 @@ type LlmEvent =
 
 Built-ins:
 
-- **`anthropic`**: Messages API with tool use and streaming. Credentials from config `apiKey`, or per-user key
-  (see 7.6).
-- **`openai-compatible`**: Chat Completions with tools against any `baseUrl`. Token source: `static` (env secret) or
-  `identity` (the signed-in user's upstream token from the auth provider). This covers self-hosted and proxy LLM
+- **`anthropic`**: Messages API with tool use and streaming.
+- **`openai-compatible`**: Chat Completions with tools against any `baseUrl`. This covers self-hosted and proxy LLM
   gateways.
+
+Both get their credentials per request from the provider catalog (7.6), never from the provider itself.
 - **`claude-code-cli`**: the current integration, adapted to the interface: runs `claude -p` with the same lock-down
   flags as today. Marked **dev-only**: enabled only when auth is `dev`, unless `allowInMultiUser: true` is set
   explicitly, because it bills one account for every user.
@@ -411,9 +411,13 @@ browser ─POST /api/chat/:conversationId/prompt─▶ server agent loop ─▶ 
 
 - The agent loop lives on the server (`packages/server/src/chat/agentLoop.ts`): it sends messages + tool specs to the
   provider, executes tool calls, appends results, and repeats until the model stops or `maxTurns` (default 20) is hit.
-- Conversation state is in memory per `(user, document, conversationId)` with limits: max 8 sessions per user, 64
-  total, idle eviction after 30 min, prompt text ≤ 64 KB, ≤ 3 attachments per message, ≤ 2 MB each, ≤ 6 MB total.
-  Supported attachments: images, PDF, text/CSV/Markdown, `.bpmn` (as today).
+- Conversation history is stored in the database per `(user, document, conversationId)`, so any server instance can
+  run the next turn (no sticky sessions). A turn is one request: the instance that receives the prompt resolves the
+  credentials (7.6), runs the loop and streams events; it keeps a decrypted personal key only for that turn.
+  Browser tool results come back to whichever instance received them, are written to the database, and the event bus
+  (Postgres NOTIFY) wakes the instance running the turn.
+- Limits: max 8 active turns per user, prompt text ≤ 64 KB, ≤ 3 attachments per message, ≤ 2 MB each, ≤ 6 MB total;
+  conversations idle for 30 days are deleted. Supported attachments: images, PDF, text/CSV/Markdown, `.bpmn`.
 - SSE events are numbered so a reconnecting browser can replay what it missed (keep the last N events per session).
 
 ### 7.2 Tools
@@ -464,8 +468,25 @@ element ids", and how to use external MCP tools. Deployments may append text via
 
 ### 7.6 Who pays (configurable)
 
-`chat.credentials`: `server` (one key from env, default), `identity` (user's upstream token, for gateways), or
-`user-key` (each user stores their own provider key in Settings, encrypted with `APP_SECRET`). See Q2.
+The server configuration holds a **provider catalog** (`llm.providers`); users choose only from it and cannot enter
+URLs. Each entry names where its credentials come from: `user-key`, `server` (a secret from an env var named in the
+entry), `identity` (the signed-in user's upstream token, e.g. forwarded by the authenticating proxy) or `adapter` (a
+function from the `APP_CONFIG` module, the hook for organization-specific schemes such as token exchange). Two modes:
+
+- **`personal`** (default): only `user-key` entries are allowed; the default catalog offers Anthropic and OpenAI.
+- **`managed`**: the organization defines the catalog; any credential source except `user-key` is typical.
+
+Personal keys are encrypted with AES-256-GCM under `HKDF(serverPart(APP_SECRET) ‖ browserSecret, salt)`, where
+`browserSecret` lives in an `HttpOnly`, `SameSite=Strict` cookie, with `user, provider, keyring` as associated data.
+Neither a database dump, nor the server secret, nor the cookie alone decrypts a key. Keys are bound to one browser,
+deleted on sign-out and after a year unused, validated with the provider before saving, redacted from errors, and
+not reachable with access tokens. Pages carry a strict CSP. (A key derived from the identity provider session or a
+passkey PRF was considered; IdP sessions offer no stable secret to derive from, and PRF support is uneven, so the
+cookie + server secret split was chosen.) `APP_SECRET` is required with Postgres; a single SQLite instance generates
+one into its data folder.
+
+Not built yet: for `identity` with OIDC (not a proxy), the server would have to keep the user's access and refresh
+tokens (encrypted, refreshed one at a time per user); until then, `identity` is meant for `trusted-headers`.
 
 ## 8. MCP server (expose)
 
@@ -701,13 +722,16 @@ Implementation notes (done):
 
 ### Phase 6: LLM providers and the new chat
 
-Tasks:
-1. `LlmProvider` interface; `anthropic`, `openai-compatible`, `claude-code-cli` (4.4). A `fake` provider for tests
-   that replays scripted tool calls.
-2. Agent loop, session service with limits and replay (7.1), browser tool bridge (7.2), role-filtered tools.
-3. Browser side: tool executors using bpmn-js `modeling`, proposal "Keep / Undo", diff highlighting.
-4. Model picker; usage/cost display; rate limits.
-5. Credentials modes (7.6).
+Split into three PRs:
+
+- **6a, providers and credentials** (done): `LlmProvider` interface with `anthropic` and `openai-compatible`
+  (4.4); provider catalog, modes and credential sources; personal keys stored encrypted per browser; Settings
+  section; `APP_SECRET`; CSP on pages (7.6).
+- **6b, agent loop**: conversation history in the database; agent loop with limits; browser tool bridge through
+  the database and event bus (7.1, 7.2); role-filtered tools; a `fake` provider for tests that replays scripted tool
+  calls.
+- **6c, chat UI and tools**: browser tool executors using bpmn-js `modeling`, proposal "Keep / Undo", diff
+  highlighting; model picker; usage/cost display; rate limits; `claude-code-cli` as a provider (dev or managed only).
 
 Acceptance: with the fake provider, an end-to-end test adds a task between two elements through browser tools, the
 change is undoable, and saving records `AI: …`; a viewer's chat cannot call edit tools (server rejects even if the
@@ -804,7 +828,7 @@ Acceptance: a new developer can follow README to run the core with SQLite in und
 | # | Question | Default |
 |---|---|---|
 | Q1 | Public product/package name and license (MIT vs. Apache-2.0)? | scope `@flowboard`, license undecided (must allow bundling MIT/ISC/Apache code and the bpmn.io license) |
-| Q2 | Who pays for AI in multi-user mode: server key, user's upstream token, or personal keys? | `server` key, all three implemented |
+| Q2 | Who pays for AI in multi-user mode: server key, user's upstream token, or personal keys? | Answered: `personal` mode (own keys) by default, `managed` mode for organizations (7.6) |
 | Q3 | Do viewers see version history including author names? | yes |
 | Q4 | Allow anonymous (not signed-in) access via share links? | no |
 | Q5 | Soft-delete retention period? | 30 days |

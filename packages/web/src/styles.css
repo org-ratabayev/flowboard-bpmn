@@ -81,6 +81,15 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 #properties.read-only .bio-properties-panel-add-entry,
 #properties.read-only .bio-properties-panel-remove-entry { pointer-events: none; opacity: .65; }
 
+/* ---------- settings: AI providers ---------- */
+.ai-provider { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 8px; flex-wrap: wrap; }
+.ai-provider .ai-name { flex: 1; min-width: 180px; }
+.ai-provider .ai-name small { display: block; color: var(--muted); }
+.ai-provider .ai-key { font-size: 13px; color: var(--muted); }
+.ai-provider .ok { color: var(--ok); font-size: 13px; }
+.ai-key-form { display: flex; gap: 8px; flex: 2; min-width: 260px; }
+.ai-key-form input { flex: 1; font-family: ui-monospace, monospace; }
+
 /* ---------- roles and sharing ---------- */
 .role-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eef2f7; color: var(--muted); white-space: nowrap; }
 .role-badge.role-viewer { background: #fff4e5; color: #8a5300; }

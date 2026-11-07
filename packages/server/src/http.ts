@@ -57,12 +57,32 @@ export function readJson(req: IncomingMessage, maxBody: number): Promise<Record<
   });
 }
 
+/**
+ * Content Security Policy for the app's pages: scripts only from this origin (no inline scripts),
+ * no plugins, no framing. Inline styles stay allowed: bpmn-js positions elements with style attributes.
+ */
+export const PAGE_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join('; ');
+
 export async function serveStatic(res: ServerResponse, file: string): Promise<void> {
   try {
     const data = await fsp.readFile(file);
+    const type = MIME[path.extname(file)] || 'application/octet-stream';
     res.writeHead(200, {
-      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-      'Cache-Control': 'no-cache'
+      'Content-Type': type,
+      'Cache-Control': 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      ...(type.startsWith('text/html') ? { 'Content-Security-Policy': PAGE_CSP, 'Referrer-Policy': 'same-origin' } : {})
     });
     res.end(data);
   } catch {

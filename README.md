@@ -140,6 +140,65 @@ The provider lives in `packages/server/src/chat/claudeCode.ts` and implements th
 (`run({ cwd, prompt, systemPrompt, sessionId })`, see `packages/server/src/chat/types.ts`), so other LLM
 providers can be added next to it later.
 
+## AI providers
+
+The server decides which AI providers users may use; users cannot add providers or URLs of their own. (The chat
+above still runs through the Claude Code CLI; the next release moves it onto these providers.) There are two modes:
+
+- **`personal`** (default): every user brings their own API key, saved under **Settings → AI providers**. The default
+  list offers Anthropic and OpenAI. The server pays for nothing.
+- **`managed`**: the organization configures the providers and their credentials, and users cannot add keys.
+
+| Env var | Default | |
+|---|---|---|
+| `LLM_MODE` | `personal` | `personal` or `managed` |
+| `LLM_PROVIDERS` | Anthropic + OpenAI (personal), none (managed) | JSON list replacing the default list, see below |
+| `APP_SECRET` | generated (SQLite only) | 32+ characters; protects personal keys, see below |
+| `AUTH_TOKEN_HEADER` | – | with `trusted-headers`: header in which the proxy forwards the user's access token |
+
+Each entry of `LLM_PROVIDERS` (or `llm.providers` in an `APP_CONFIG` module):
+
+```json
+[
+  { "id": "gateway", "label": "Company models", "type": "openai-compatible", "baseUrl": "https://llm.example.com/v1",
+    "models": ["large", "small"], "defaultModel": "large", "credentials": { "from": "identity" },
+    "headers": { "x-app": "flowboard" }, "userIdHeader": "x-user-id" }
+]
+```
+
+- `type`: `anthropic` (Messages API) or `openai-compatible` (Chat Completions; needs `baseUrl`).
+- `credentials.from`:
+  - `user-key`: the user's own key (the only kind allowed in `personal` mode);
+  - `server`: one key for everyone, read from the environment variable named in `secretEnv` (the key itself never
+    appears in the configuration);
+  - `identity`: the signed-in user's access token, sent as `Authorization: Bearer`. For gateways that bill or limit
+    per user. With `trusted-headers`, the proxy forwards it in `AUTH_TOKEN_HEADER`; it is only read from requests the
+    proxy has authenticated;
+  - `adapter`: a function in an `APP_CONFIG` module that returns the credentials per request
+    (`({ user, upstreamToken, providerId }) => ({ apiKey } | { bearer, headers } | null)`), for example to exchange
+    the user's token for a provider token.
+- `userIdHeader`: also send the user's subject in this header.
+
+`GET /api/llm/providers` lists the providers with whether each is ready for the current user; it never returns keys,
+tokens or provider URLs.
+
+**How personal keys are kept.** A key is checked with the provider before it is saved, then encrypted (AES-256-GCM)
+with a key derived from two halves: `APP_SECRET` on the server and a random secret in an `HttpOnly`,
+`SameSite=Strict` cookie (`flowboard_keyring`) in the user's browser. The database alone, the server alone, or the
+cookie alone cannot decrypt it. So a key saved in one browser cannot be used from another (save it there too), and
+**signing out deletes the keys of that browser**. Keys unused for a year are deleted. Settings shows only a hint
+(`sk-ant-…ab12`) and when the key was last used, and provider error messages are scrubbed of the key. Access tokens
+cannot read, add or remove AI keys. Tip for users: create a separate key for this app with a spending limit.
+
+**`APP_SECRET`.** Required with Postgres (all instances must share it; generate one with `openssl rand -base64 48`).
+With SQLite and no `APP_SECRET`, the server generates one into `<BPMN_DIR>/app-secret` (mode 600) and warns at
+start. Back it up separately from the database: without it, saved keys cannot be decrypted (users then just save
+them again). Changing it has the same effect. Not needed in `managed` mode without `user-key` providers.
+
+**Pages are served with a strict Content Security Policy** (scripts only from the app itself, no inline scripts, no
+framing), so an injected script cannot run in the page that handles keys. Plugins must therefore load their scripts
+as files, not inline.
+
 ## Plugins and upgrading
 
 The browser libraries are npm dependencies of `packages/web` (exact versions in `packages/web/package.json`), bundled

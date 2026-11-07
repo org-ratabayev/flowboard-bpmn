@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { configFromEnv, loadConfigFromEnv, mergeConfig, parseConfig } from './config.ts';
+import { DEFAULT_PERSONAL_PROVIDERS } from './llm/catalog.ts';
 
 describe('parseConfig', () => {
   it('applies defaults', () => {
@@ -12,6 +13,7 @@ describe('parseConfig', () => {
       host: '0.0.0.0',
       dataDir: path.join(os.homedir(), 'workspace', 'bpmn-diagrams'),
       publicDir: '/srv/public',
+      llm: { mode: 'personal', providers: DEFAULT_PERSONAL_PROVIDERS },
       auth: {
         kind: 'dev',
         sessionDays: 30,
@@ -64,6 +66,7 @@ describe('configFromEnv', () => {
       host: '127.0.0.1',
       dataDir: '/data',
       auth: { oidc: {}, trustedHeaders: {} },
+      llm: {},
       storage: { kind: undefined, sqlitePath: undefined, postgresUrl: undefined, postgresPoolSize: undefined, importOnFirstStart: undefined },
       chat: { enabled: false, claudeCode: { bin: '/bin/claude', model: 'sonnet', timeoutMs: 1000 } }
     });
@@ -78,7 +81,7 @@ describe('configFromEnv', () => {
 
   it('leaves unset and empty variables out', () => {
     const merged = mergeConfig(configFromEnv({ CLAUDE_MODEL: '', CHAT: '' }));
-    expect(merged).toEqual({ auth: { oidc: {}, trustedHeaders: {} }, storage: {}, chat: { claudeCode: {} } });
+    expect(merged).toEqual({ auth: { oidc: {}, trustedHeaders: {} }, storage: {}, llm: {}, chat: { claudeCode: {} } });
   });
 
   it('maps auth variables', () => {
@@ -131,5 +134,48 @@ describe('loadConfigFromEnv', () => {
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('AI provider settings', () => {
+  const managed = (providers: unknown[]) => parseConfig({ publicDir: '/p', llm: { mode: 'managed', providers } });
+
+  it("starts in personal mode with providers that take the user's own key", () => {
+    const config = parseConfig({ publicDir: '/p' });
+    expect(config.llm.mode).toBe('personal');
+    expect(config.llm.providers.map((p) => [p.id, p.credentials.from])).toEqual([['anthropic', 'user-key'], ['openai', 'user-key']]);
+    expect(parseConfig({ publicDir: '/p', llm: { mode: 'managed' } }).llm.providers).toEqual([]);
+  });
+
+  it('allows only own keys in personal mode', () => {
+    expect(() => parseConfig({ publicDir: '/p', llm: { providers: [{ id: 'x', label: 'X', type: 'anthropic', credentials: { from: 'server', secretEnv: 'X_KEY' } }] } }))
+      .toThrow(/personal mode/);
+  });
+
+  it('accepts managed providers with server, identity and adapter credentials', () => {
+    const adapter = () => ({ bearer: 't' });
+    const config = managed([
+      { id: 'gw', label: 'Gateway', type: 'openai-compatible', baseUrl: 'https://gw.example.com/v1', credentials: { from: 'identity' }, userIdHeader: 'x-user-id' },
+      { id: 'srv', label: 'Server', type: 'anthropic', credentials: { from: 'server', secretEnv: 'ANTHROPIC_API_KEY' } },
+      { id: 'custom', label: 'Custom', type: 'anthropic', credentials: { from: 'adapter', adapter } }
+    ]);
+    expect(config.llm.providers.map((p) => p.id)).toEqual(['gw', 'srv', 'custom']);
+  });
+
+  it('rejects duplicate ids, a missing base URL, bad env names and non-function adapters', () => {
+    const p = { label: 'X', type: 'anthropic', credentials: { from: 'user-key' } };
+    expect(() => managed([{ id: 'a', ...p }, { id: 'a', ...p }])).toThrow(/unique/);
+    expect(() => managed([{ id: 'o', label: 'O', type: 'openai-compatible', credentials: { from: 'user-key' } }])).toThrow(/baseUrl/);
+    expect(() => managed([{ id: 's', label: 'S', type: 'anthropic', credentials: { from: 'server', secretEnv: 'not valid' } }])).toThrow();
+    expect(() => managed([{ id: 'd', label: 'D', type: 'anthropic', credentials: { from: 'adapter', adapter: 'nope' } }])).toThrow(/function/);
+  });
+
+  it('reads LLM_MODE, LLM_PROVIDERS, APP_SECRET and AUTH_TOKEN_HEADER', () => {
+    const merged = mergeConfig(configFromEnv({
+      LLM_MODE: 'managed', LLM_PROVIDERS: '[{"id":"gw"}]', APP_SECRET: 's'.repeat(40), AUTH_TOKEN_HEADER: 'X-Token'
+    }));
+    expect(merged).toMatchObject({ llm: { mode: 'managed', providers: [{ id: 'gw' }] }, appSecret: 's'.repeat(40), auth: { trustedHeaders: { tokenHeader: 'x-token' } } });
+    expect(() => configFromEnv({ LLM_PROVIDERS: '[{' })).toThrow('LLM_PROVIDERS must be valid JSON');
+    expect(() => parseConfig({ publicDir: '/p', appSecret: 'short' })).toThrow(/at least 32/);
   });
 });

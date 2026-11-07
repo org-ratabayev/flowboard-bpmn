@@ -114,6 +114,8 @@ export function createOidcAuth(config: Config, store: AuthStore, session: Sessio
     kind: 'oidc',
     canLogout: true,
     identify: session.identify,
+    // the OIDC access token is not kept yet (backend-for-frontend storage comes with managed AI providers)
+    upstreamToken: () => null,
     async handle(req, res, parts) {
       const url = new URL(req.url || '/', 'http://localhost');
       const route = `${req.method} /${parts.join('/')}`;

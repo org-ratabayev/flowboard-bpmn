@@ -274,6 +274,43 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         INSERT INTO app_settings (key, value) SELECT 'first_user_id', id FROM users ORDER BY created_at, id LIMIT 1;
       `
     }
+  },
+  {
+    // Users' own AI provider keys, one per user, provider and browser ("keyring"). Only ciphertext:
+    // decrypting needs the server secret and the secret in that browser's keyring cookie.
+    id: '007_llm_keys',
+    sql: {
+      sqlite: `
+        CREATE TABLE user_llm_keys (
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          provider_id  TEXT NOT NULL,
+          keyring_id   TEXT NOT NULL,
+          salt         TEXT NOT NULL,
+          iv           TEXT NOT NULL,
+          ciphertext   TEXT NOT NULL,
+          hint         TEXT NOT NULL,
+          created_at   TEXT NOT NULL,
+          last_used_at TEXT,
+          PRIMARY KEY (user_id, provider_id, keyring_id)
+        );
+        CREATE INDEX user_llm_keys_keyring_idx ON user_llm_keys (keyring_id);
+      `,
+      postgres: `
+        CREATE TABLE user_llm_keys (
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          provider_id  TEXT NOT NULL,
+          keyring_id   TEXT NOT NULL,
+          salt         TEXT NOT NULL,
+          iv           TEXT NOT NULL,
+          ciphertext   TEXT NOT NULL,
+          hint         TEXT NOT NULL,
+          created_at   TIMESTAMPTZ NOT NULL,
+          last_used_at TIMESTAMPTZ,
+          PRIMARY KEY (user_id, provider_id, keyring_id)
+        );
+        CREATE INDEX user_llm_keys_keyring_idx ON user_llm_keys (keyring_id);
+      `
+    }
   }
 ];
 
