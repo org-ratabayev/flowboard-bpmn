@@ -18,7 +18,8 @@ import MinimapModule from 'diagram-js-minimap';
 import { diff } from 'bpmn-js-differ';
 import { layoutProcess } from 'bpmn-auto-layout';
 import lintConfig from './lint-config.mjs';
-import './session.mjs';
+import { me } from './session.mjs';
+import { openShareDialog } from './share.mjs';
 import { createLive } from './live.mjs';
 
 const id = decodeURIComponent(location.pathname.split('/')[2]);
@@ -59,8 +60,25 @@ const state = {
   versions: [],
   pendingNote: null,  // history note for the next save, e.g. after applying a chat change
   edits: 0,           // counts canvas edits, to detect edits made while a chat request runs
-  publishPending: false // a local change is waiting to be shared with other participants
+  publishPending: false, // a local change is waiting to be shared with other participants
+  role: 'owner',        // the user's role on this project: owner, editor or viewer
+  warnedViewOnly: false
 };
+
+const ROLE_BADGE = { owner: '', editor: 'Can edit', viewer: 'View only' };
+
+/** Shows what the user may do; viewers cannot save, chat or share changes with others. */
+function applyRole(role) {
+  state.role = role;
+  const viewer = role === 'viewer';
+  $('roleBadge').textContent = ROLE_BADGE[role] || '';
+  $('roleBadge').hidden = !ROLE_BADGE[role];
+  $('roleBadge').className = `role-badge role-${role}`;
+  $('save').hidden = viewer;
+  $('chatBtn').hidden = viewer;
+  $('name').readOnly = role !== 'owner' && role !== 'editor';
+  if (viewer) document.getElementById('chat')?.classList.remove('show');
+}
 
 let live = null;      // live collaboration client, connected after the first load
 
@@ -103,7 +121,8 @@ function setStatus(text, cls = '') {
 }
 
 function updateStatus() {
-  if (state.viewing) setStatus(state.dirty ? 'Unsaved changes (based on old version)' : 'Viewing old version', 'dirty');
+  if (state.role === 'viewer') setStatus(state.dirty ? 'View only: your changes are not saved' : '', state.dirty ? 'dirty' : '');
+  else if (state.viewing) setStatus(state.dirty ? 'Unsaved changes (based on old version)' : 'Viewing old version', 'dirty');
   else if (state.dirty) setStatus('Unsaved changes', 'dirty');
   else setStatus('All changes saved', 'ok');
   $('save').textContent = state.viewing ? 'Restore this version' : 'Save';
@@ -155,6 +174,10 @@ modeler.on('commandStack.changed', () => {
   state.edits++;
   state.dirty = true;
   updateStatus();
+  if (state.role === 'viewer' && !state.warnedViewOnly) {
+    state.warnedViewOnly = true;
+    showBanner('You can view this project but not change it. Changes you make here are not saved or shown to others.', [['Discard my changes', () => loadLatest({ fit: false }), true]]);
+  }
   schedulePublish();
 });
 
@@ -167,7 +190,7 @@ const interaction = { dragging: false, directEditing: false };
 
 // Shares the current diagram with other participants shortly after a local change.
 function schedulePublish() {
-  if (!live || state.viewing) return;
+  if (!live || state.viewing || state.role === 'viewer') return;
   state.publishPending = true;
   clearTimeout(publishTimer);
   publishTimer = setTimeout(publishNow, PUBLISH_DELAY_MS);
@@ -255,6 +278,8 @@ async function loadLatest({ fit = true } = {}) {
   const p = await res.json();
   document.title = `${p.name} · BPMN`;
   $('name').value = p.name;
+  applyRole(p.role);
+  state.warnedViewOnly = false;
   const viewbox = fit ? null : modeler.get('canvas').viewbox();
   const { generated } = await importXml(p.xml);
   if (fit) modeler.get('canvas').zoom('fit-viewport', 'auto');
@@ -274,7 +299,7 @@ async function loadLatest({ fit = true } = {}) {
 }
 
 async function save({ force = false } = {}) {
-  if (state.saving) return;
+  if (state.saving || state.role === 'viewer') return;
   state.saving = true;
   $('save').disabled = true;
   setStatus('Saving…');
@@ -642,6 +667,18 @@ function togglePanel(panelId, prefKey, force) {
 togglePanel('properties', null, prefs.get('properties', true));
 
 $('save').onclick = () => save();
+$('shareBtn').onclick = async () => {
+  const user = await me;
+  openShareDialog({
+    api,
+    projectName: $('name').value,
+    role: state.role,
+    meId: user.id,
+    toast,
+    onLeft: () => { location.href = '/'; }
+  });
+};
+
 $('copyLink').onclick = async () => {
   const url = location.href.split('#')[0];
   try { await navigator.clipboard.writeText(url); toast('Link copied'); }

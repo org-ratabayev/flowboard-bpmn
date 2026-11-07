@@ -162,6 +162,43 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         CREATE INDEX access_tokens_user_id_idx ON access_tokens (user_id);
       `
     }
+  },
+  {
+    // Ownership and sharing. Existing documents get an owner when a user exists (see adoptUnowned)
+    // and start private, like new ones.
+    id: '005_sharing',
+    sql: {
+      sqlite: `
+        ALTER TABLE documents ADD COLUMN owner_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE documents ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'everyone'));
+        CREATE INDEX documents_owner_id_idx ON documents (owner_id);
+        CREATE TABLE document_grants (
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          role        TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+          granted_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TEXT NOT NULL,
+          updated_at  TEXT NOT NULL,
+          PRIMARY KEY (document_id, user_id)
+        );
+        CREATE INDEX document_grants_user_id_idx ON document_grants (user_id);
+      `,
+      postgres: `
+        ALTER TABLE documents ADD COLUMN owner_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE documents ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'everyone'));
+        CREATE INDEX documents_owner_id_idx ON documents (owner_id);
+        CREATE TABLE document_grants (
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          role        TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+          granted_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TIMESTAMPTZ NOT NULL,
+          updated_at  TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (document_id, user_id)
+        );
+        CREATE INDEX document_grants_user_id_idx ON document_grants (user_id);
+      `
+    }
   }
 ];
 

@@ -70,6 +70,32 @@ a.me-name:hover { text-decoration: underline; }
 .page h2 { font-size: 17px; margin: 28px 0 4px; }
 .page h1 .back { font-size: 14px; font-weight: 400; margin-right: 8px; text-decoration: none; }
 button.danger { border-color: var(--danger); color: var(--danger); }
+
+/* ---------- roles and sharing ---------- */
+.role-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #eef2f7; color: var(--muted); white-space: nowrap; }
+.role-badge.role-viewer { background: #fff4e5; color: #8a5300; }
+.access { font-size: 13px; color: var(--muted); }
+.access .tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #eef2f7; margin-left: 4px; }
+.filters { display: flex; gap: 6px; margin-bottom: 12px; }
+.filters button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* A panel near the top, without a full-page backdrop: nothing may cover the bpmn.io watermark in the canvas corner. */
+.dialog-panel { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); width: min(520px, calc(100vw - 32px)); z-index: 1000; }
+.dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .2); padding: 16px 20px; max-height: calc(100vh - 160px); overflow: auto; }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dialog-head h2 { font-size: 17px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dialog .close { border: none; background: none; font-size: 16px; }
+.share-add { position: relative; display: flex; gap: 8px; margin: 14px 0 6px; }
+.share-add .share-search { flex: 1; }
+.share-results { position: absolute; top: 100%; left: 0; right: 0; margin: 2px 0 0; padding: 4px 0; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, .1); z-index: 1; }
+.share-results li { padding: 6px 10px; cursor: pointer; }
+.share-results li:hover { background: #f2f5f9; }
+.share-results li.none { cursor: default; color: var(--muted); }
+.share-results small, .share-people small { color: var(--muted); margin-left: 6px; }
+.share-people { list-style: none; padding: 0; margin: 12px 0; }
+.share-people li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.share-people .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-people .role { color: var(--muted); font-size: 13px; }
+.share-visibility label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
 .new-token { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; background: var(--surface); }
 .new-token input { font-family: ui-monospace, monospace; }
 .new-token pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; color: var(--muted); margin: 0; }

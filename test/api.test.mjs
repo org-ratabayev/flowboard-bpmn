@@ -56,6 +56,7 @@ describe('projects', () => {
     const second = await req('POST', '/api/projects', { name: 'Order Flow!' });
     assert.equal(first.body.id, 'order-flow');
     assert.equal(second.body.id, 'order-flow-2');
+    await server.grant('order-flow', 'Tester', 'viewer', 'Alice'); // Alice's project is private until she shares it
 
     const project = (await req('GET', '/api/projects/order-flow')).body;
     assert.equal(project.name, 'Order Flow!');
@@ -85,10 +86,14 @@ describe('projects', () => {
     assert.deepEqual(updated, updated.slice().sort().reverse());
 
     const flow = res.body.find((p) => p.id === 'order-flow');
-    assert.deepEqual(Object.keys(flow).sort(), ['createdAt', 'id', 'name', 'updatedAt', 'updatedBy', 'versionCount']);
+    assert.deepEqual(Object.keys(flow).sort(), ['createdAt', 'id', 'name', 'owner', 'role', 'updatedAt', 'updatedBy', 'versionCount', 'visibility']);
     assert.equal(flow.name, 'Order Flow!');
     assert.equal(flow.updatedBy, 'Alice');
     assert.equal(flow.versionCount, 1);
+    assert.equal(flow.role, 'viewer');
+    assert.equal(flow.visibility, 'private');
+    assert.equal(flow.owner.name, 'Alice');
+    assert.equal(res.body.find((p) => p.id === 'order-flow-2').role, 'owner');
   });
 
   it('returns a project with its latest version', async () => {
@@ -101,7 +106,10 @@ describe('projects', () => {
       version: entry.version,
       xml: diagram('Imported'),
       rev: 0,
-      dirty: false
+      dirty: false,
+      role: 'viewer',
+      visibility: 'private',
+      owner: { id: res.body.owner.id, name: 'Alice' }
     });
   });
 
@@ -133,6 +141,7 @@ describe('saving', () => {
   before(async () => {
     id = (await req('POST', '/api/projects', { name: 'Save test' })).body.id;
     base = (await req('GET', `/api/projects/${id}`)).body.version;
+    await server.grant(id, 'Bob');
   });
 
   it('saves a new version on top of the latest one', async () => {
@@ -184,6 +193,7 @@ describe('history and download', () => {
   before(async () => {
     id = (await req('POST', '/api/projects', { name: 'History test', xml: diagram('One') })).body.id;
     const first = (await req('GET', `/api/projects/${id}`)).body.version;
+    await server.grant(id, 'Carol');
     await server.as('Carol')('PUT', `/api/projects/${id}`, { xml: diagram('Two'), baseVersion: first, note: 'Second' });
     versions = (await req('GET', `/api/projects/${id}/history`)).body;
   });

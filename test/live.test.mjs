@@ -12,7 +12,12 @@ before(async () => {
 });
 after(() => server.stop());
 
-const newProject = async (name) => (await req('POST', '/api/projects', { name })).body.id;
+/** A project of Tester that Alice, Bob and Carol may edit. */
+const newProject = async (name) => {
+  const id = (await req('POST', '/api/projects', { name })).body.id;
+  for (const user of ['Alice', 'Bob', 'Carol']) await server.grant(id, user);
+  return id;
+};
 const clientId = () => `client-${Math.random().toString(36).slice(2, 12)}`;
 
 describe('live collaboration', () => {

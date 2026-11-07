@@ -33,6 +33,10 @@ describe('first start', () => {
     const history = (await server.request('GET', '/api/projects/order-flow/history')).body;
     assert.deepEqual(history.map((v) => [v.version, v.author, v.note]), [[V1, 'Ann', 'Created']]);
     assert.match(server.output(), /Imported 1 project folder/);
+    // imported before anyone signed in: it belongs to the first user who did, and stays private
+    assert.equal(list[0].role, 'owner');
+    assert.equal(list[0].owner.name, 'Tester');
+    assert.deepEqual((await server.as('Second user')('GET', '/api/projects')).body, []);
     assert.equal(await fs.readFile(path.join(server.dataDir, 'order-flow', 'order-flow.bpmn'), 'utf8'), diagram('Order Flow'));
   });
 
