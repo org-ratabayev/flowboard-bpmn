@@ -12,6 +12,7 @@ import { createAuthStore } from './auth/authStore.ts';
 import { isSameOrigin } from './auth/requestChecks.ts';
 import { createTokenStore, type TokenStore } from './auth/tokenStore.ts';
 import { createAccessStore, type AccessStore } from './storage/accessStore.ts';
+import { createLocalEvents, createPostgresEvents, type AccessEvents } from './events.ts';
 import { handleApi, type ApiContext } from './routes.ts';
 import { importFromFolder, openStore, type DocumentStore, type ImportResult } from './storage/index.ts';
 
@@ -36,7 +37,8 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   let auth: Auth | null = null;
   let tokens: TokenStore | null = null;
   let access: AccessStore | null = null;
-  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'viaToken'> = {
+  let events: AccessEvents | null = null;
+  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'events' | 'viaToken'> = {
     live: createLiveHub(),
     chat: config.chat.enabled
       ? createChatService({ provider: createClaudeCodeProvider(config.chat.claudeCode), workDir: config.chat.workDir })
@@ -77,7 +79,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         }
       }
 
-      if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth!, tokens: tokens!, access: access!, viaToken }, req, res, parts, url);
+      if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth!, tokens: tokens!, access: access!, events: events!, viaToken }, req, res, parts, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
       if (parts.length === 0) return await serveStatic(res, path.join(publicDir, 'index.html'));
       if (parts.length === 1 && parts[0] === 'settings') return await serveStatic(res, path.join(publicDir, 'settings.html'));
@@ -107,6 +109,15 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       auth = createAuth(config, authStore);
       tokens = createTokenStore(store.db);
       access = createAccessStore(store.db);
+      events = config.storage.kind === 'postgres'
+        ? createPostgresEvents(store.db, { connectionString: config.storage.postgresUrl!, listen: config.storage.postgresListen })
+        : createLocalEvents();
+      const accessStore = access;
+      // when access to a project changes, everyone connected to it learns their new role at once
+      events.subscribe((documentId) => {
+        ctx.live.refreshAccess(documentId, (userId) => accessStore.roleOf(userId, documentId))
+          .catch((err) => console.error('Refreshing live access failed:', err));
+      });
       await authStore.deleteExpiredSessions();
       if (config.storage.importOnFirstStart && (await store.countProjects()) === 0) {
         server.imported = await importFromFolder(store, config.dataDir);
@@ -129,6 +140,8 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
           httpServer.closeAllConnections();
         });
       }
+      await events?.close();
+      events = null;
       await store?.close();
       store = null;
     }

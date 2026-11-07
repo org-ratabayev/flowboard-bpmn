@@ -19,6 +19,7 @@ import { diff } from 'bpmn-js-differ';
 import { layoutProcess } from 'bpmn-auto-layout';
 import lintConfig from './lint-config.mjs';
 import { me } from './session.mjs';
+import { createReadOnly } from './readOnly.mjs';
 import { openShareDialog } from './share.mjs';
 import { createLive } from './live.mjs';
 
@@ -51,6 +52,8 @@ const modeler = new BpmnJS({
 
 modeler.on('linting.toggle', ({ active }) => prefs.set('lint', active));
 
+const readOnly = createReadOnly(modeler, { propertiesEl: document.getElementById('properties') });
+
 const state = {
   baseVersion: null,  // latest version this editor is based on
   viewing: null,      // history version currently shown, null = latest
@@ -77,7 +80,41 @@ function applyRole(role) {
   $('save').hidden = viewer;
   $('chatBtn').hidden = viewer;
   $('name').readOnly = role !== 'owner' && role !== 'editor';
+  document.querySelector('[data-action="layout"]').hidden = viewer;
+  readOnly.set(viewer);
   if (viewer) document.getElementById('chat')?.classList.remove('show');
+}
+
+/** The owner changed our role while the project is open (live event, or noticed on reconnect). */
+async function onAccessChanged(role) {
+  const previous = state.role;
+  if (role === previous) return;
+  applyRole(role);
+  updateStatus();
+  if (role !== 'viewer') {
+    toast(previous === 'viewer' ? 'You can now edit this project' : `Your role changed: ${ROLE_BADGE[role] || 'owner'}`);
+    return;
+  }
+  if (!state.dirty) {
+    toast('Your access changed to view only');
+    return;
+  }
+  // unsaved changes stay in the browser, but can no longer be saved here
+  showBanner('Your access changed to <b>view only</b>. Your unsaved changes cannot be saved anymore.', [
+    ['Download my changes', async () => {
+      const { xml } = await modeler.saveXML({ format: true });
+      downloadBlob(new Blob([xml], { type: 'application/xml' }), `${id}-my-changes.bpmn`);
+    }, true],
+    ['Discard them', () => loadLatest({ fit: false })]
+  ]);
+}
+
+/** Our access to the project was removed while it was open. */
+function onAccessRevoked() {
+  modeler.destroy();
+  document.body.className = '';
+  document.body.innerHTML = `<div class="page"><h1>You no longer have access</h1>
+    <p class="sub">The owner removed your access to this project.</p><p><a href="/">Back to your projects</a></p></div>`;
 }
 
 let live = null;      // live collaboration client, connected after the first load
@@ -251,6 +288,8 @@ function startLive() {
       }
     },
     onDoc: (update) => applyRemote(update),
+    onAccess: onAccessChanged,
+    onRevoked: onAccessRevoked,
     onSaved: async (saved) => {
       state.baseVersion = saved.version;
       if (saved.by === live.me.id) return; // our own save, handled in save()

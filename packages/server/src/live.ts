@@ -17,6 +17,9 @@ const MAX_DOC_BYTES = 20 * 1024 * 1024;
 interface Client {
   id: string;
   res: ServerResponse;
+  /** The signed-in user (users.id) and their current role on the project. */
+  userId: string;
+  role: string;
   name: string;
   color: string;
   cursor: { x: number; y: number } | null;
@@ -97,8 +100,9 @@ export function createLiveHub() {
 
   return {
     /** GET …/live: open the event stream for one browser tab. */
-    /** `name` is the signed-in user's display name, shown to the others. */
-    handleStream(req: IncomingMessage, res: ServerResponse, projectId: string, url: URL, name: string): void {
+    /** `user` is the signed-in user: their name is shown to the others; their role may change while connected. */
+    handleStream(req: IncomingMessage, res: ServerResponse, projectId: string, url: URL, user: { id: string; name: string; role: string }): void {
+      const name = user.name;
       const id = url.searchParams.get('client') || '';
       if (!CLIENT_ID_RE.test(id)) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
@@ -120,6 +124,8 @@ export function createLiveHub() {
       const client: Client = {
         id,
         res,
+        userId: user.id,
+        role: user.role,
         name: cleanName(name) || `Guest ${++room.guests}`,
         color: previous?.color || pickColor(room),
         cursor: null,
@@ -131,7 +137,7 @@ export function createLiveHub() {
       room.clients.set(id, client);
 
       sse(res, 'hello', {
-        you: { id, name: client.name, color: client.color },
+        you: { id, name: client.name, color: client.color, role: client.role },
         participants: participants(room),
         rev: room.rev,
         savedRev: room.savedRev,
@@ -186,6 +192,39 @@ export function createLiveHub() {
       }
 
       return { status: 400, body: { error: 'Unknown message type' } };
+    },
+
+    /**
+     * Re-checks the role of everyone connected to a project after its access changed:
+     * a changed role is sent as an `access` event; people without access get `access-revoked`
+     * and are disconnected. Returns how many connections were told.
+     */
+    async refreshAccess(projectId: string, roleOf: (userId: string) => Promise<string>): Promise<number> {
+      const room = rooms.get(projectId);
+      if (!room) return 0;
+      const roles = new Map<string, string>();
+      for (const userId of new Set([...room.clients.values()].map((c) => c.userId))) roles.set(userId, await roleOf(userId));
+      let told = 0;
+      let left = false;
+      for (const client of [...room.clients.values()]) {
+        const role = roles.get(client.userId)!;
+        if (role === client.role) continue;
+        told++;
+        if (role === 'none') {
+          sse(client.res, 'access-revoked', {});
+          room.clients.delete(client.id);
+          client.res.end();
+          left = true;
+        } else {
+          client.role = role;
+          sse(client.res, 'access', { role });
+        }
+      }
+      if (left) {
+        broadcastPresence(room);
+        if (!room.clients.size && room.rev === room.savedRev) rooms.delete(projectId);
+      }
+      return told;
     },
 
     /** Latest shared diagram of a project, if it has unsaved live changes. */

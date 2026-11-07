@@ -59,7 +59,8 @@ export async function startServer(env = {}, { files } = {}) {
   if (files) await files(dataDir);
   const port = await freePort();
   const postgres = process.env.TEST_STORAGE === 'postgres' ? await startPostgres() : null;
-  const storageEnv = postgres ? { DATABASE_URL: postgres.url, PG_POOL_SIZE: '1' } : { DATABASE_URL: '', STORAGE: 'sqlite' };
+  // PGlite serves one session, so no extra LISTEN connection (cross-instance events are unit-tested)
+  const storageEnv = postgres ? { DATABASE_URL: postgres.url, PG_POOL_SIZE: '1', PG_LISTEN: 'off' } : { DATABASE_URL: '', STORAGE: 'sqlite' };
   // PUBLIC_ORIGIN=self: the server's own address, which is only known here
   if (env.PUBLIC_ORIGIN === 'self') env = { ...env, PUBLIC_ORIGIN: `http://127.0.0.1:${port}` };
   const [cmd, ...args] = (process.env.TEST_SERVER_CMD || 'node --disable-warning=ExperimentalWarning apps/standalone/src/main.ts').split(' ');
@@ -210,7 +211,8 @@ export async function openLive(server, projectId, clientId, name = 'Tester') {
     w.resolve(event.data);
   };
 
-  (async () => {
+  // resolves when the server ends the stream (or it is closed here)
+  const ended = (async () => {
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = '';
     try {
@@ -243,6 +245,7 @@ export async function openLive(server, projectId, clientId, name = 'Tester') {
       });
     },
     post: (body) => server.as(name)('POST', `/api/projects/${projectId}/live`, { client: clientId, ...body }),
+    ended,
     close: () => controller.abort()
   };
 }

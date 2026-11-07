@@ -682,6 +682,23 @@ read-only within 1 s, with the unsent-changes banner if applicable; A revokes â†
 stream closes; a viewer's forged live POST returns 403/404. With two server instances on Postgres, the same works
 when A and B are connected to different instances.
 
+Implementation notes (done):
+- Rooms were already keyed by project id with authenticated streams and role checks (Phase 4a); ids stay slugs.
+- Every live connection records its user and role. After any access change (member set/removed, visibility, link
+  revoked, someone joining through a link, an invitation granted to a known user) the route publishes an access event;
+  the live hub re-checks the role of everyone in that room and sends `access` or `access-revoked` (then closes the
+  stream). `hello` carries the role too, so a change missed while disconnected is applied on reconnect.
+- The event bus is in-process for SQLite; for Postgres it also uses `NOTIFY` on `flowboard_access` with a dedicated
+  `LISTEN` connection (reconnecting with backoff; each instance ignores its own messages; `PG_LISTEN=off` turns it
+  off). PGlite serves one session, so API tests run with it off; the cross-instance path is covered by unit tests with
+  a fake connection. Not yet verified against a real multi-instance Postgres.
+- Only access events cross instances. Live editing itself (cursors, unsaved shared drafts) still happens per instance:
+  people on different instances do not see each other live until drafts are shared through the database or sticky
+  sessions are used (`live_state`, task 5, is left for when several instances are actually deployed).
+- Read-only editor: `packages/web/src/readOnly.mjs` blocks commands, undo/redo, editing drags (move, connect,
+  resize, create, space tool), direct editing, context pad and popup menus, hides palette and context pad, and
+  disables properties-panel inputs; it toggles at runtime without re-creating the modeler.
+
 ### Phase 6: LLM providers and the new chat
 
 Tasks:
