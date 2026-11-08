@@ -13,6 +13,7 @@ import { request, sleep, startServer } from './helpers/server.mjs';
 
 const USER_KEY = 'sk-ant-good-chat-key-for-tests-4242';
 const TEAM_KEY = 'server-held-team-key-for-tests-7777';
+const LEAKY_KEY = 'server-held-key-the-provider-echoes-5555'; // its model list fails with the key in the message
 const POSTGRES = process.env.TEST_STORAGE === 'postgres';
 const TOOL_TIMEOUT_MS = 1000;
 
@@ -56,6 +57,10 @@ const hang = (res) => {
 const provider = http.createServer(async (req, res) => {
   const key = req.headers['x-api-key'];
   if (req.method === 'GET') { // key check when a key is saved, and model lists
+    if (key === LEAKY_KEY) {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: { message: `upstream failed for key ${key}` } }));
+    }
     const known = key === USER_KEY || key === TEAM_KEY;
     res.writeHead(known ? 200 : 401, { 'content-type': 'application/json' });
     const models = ['claude-test', 'text-embedding-test', 'claude-other', 'claude-test'].map((id) => ({ id }));
@@ -88,6 +93,7 @@ before(async () => {
   server = await startServer({
     LLM_MODE: 'managed',
     TEAM_LLM_KEY: TEAM_KEY,
+    LEAKY_LLM_KEY: LEAKY_KEY,
     CHAT_TOOL_TIMEOUT_MS: String(TOOL_TIMEOUT_MS),
     CHAT_TURNS_PER_MINUTE: '0', // these tests send many messages; the limit has its own test
     // a fixed secret, so that a second instance on the same database can be started
@@ -95,7 +101,8 @@ before(async () => {
     LLM_PROVIDERS: JSON.stringify([
       { id: 'anthropic', label: 'Anthropic', type: 'anthropic', baseUrl: providerUrl, models: ['claude-test', 'claude-other'], credentials: { from: 'user-key' } },
       { id: 'team', label: 'Team models', type: 'anthropic', baseUrl: providerUrl, models: ['claude-test'], credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } },
-      { id: 'listed', label: 'Listed models', type: 'anthropic', baseUrl: providerUrl, credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } }
+      { id: 'listed', label: 'Listed models', type: 'anthropic', baseUrl: providerUrl, credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } },
+      { id: 'leaky', label: 'Leaky models', type: 'anthropic', baseUrl: providerUrl, credentials: { from: 'server', secretEnv: 'LEAKY_LLM_KEY' } }
     ])
   });
   ann = await browser(server, 'Ann');
@@ -411,6 +418,13 @@ describe('model lists', () => {
     const { token } = (await ann.call('POST', '/api/tokens', { name: 'Script', expiresInDays: 1 })).body;
     const withToken = await request(server.base, 'GET', '/api/llm/providers/listed/models', undefined, { headers: { Authorization: `Bearer ${token}`, Origin: null } });
     assert.equal(withToken.status, 403);
+  });
+
+  it('never return the key when the provider fails to list models', async () => {
+    const failed = await ann.call('GET', '/api/llm/providers/leaky/models');
+    assert.equal(failed.status, 502);
+    assert.match(failed.body.error, /Could not list the models of Leaky models: .*\[redacted\]/);
+    assert.ok(!JSON.stringify(failed.body).includes(LEAKY_KEY));
   });
 
   it('accept any model name for such providers', async () => {
