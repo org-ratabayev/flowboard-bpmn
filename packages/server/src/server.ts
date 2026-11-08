@@ -90,7 +90,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       }
 
       if (isApi && parts[1] === 'llm') {
-        return await handleLlm(llm!, { user: identity!, upstreamToken: auth!.upstreamToken(req), viaToken }, req, res, parts.slice(2));
+        return await handleLlm(llm!, { user: identity!, upstreamToken: viaToken ? null : auth!.upstreamToken(req), viaToken }, req, res, parts.slice(2));
       }
       if (isApi) {
         return await handleApi({

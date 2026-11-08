@@ -240,6 +240,17 @@ describe('managed AI providers', () => {
     assert.equal(gateway.ready, false);
   });
 
+  it('does not pass the proxy sign-in token on to access-token requests', async () => {
+    const proxy = { 'x-proxy-secret': PROXY_SECRET, 'x-forwarded-user': 'ann' };
+    const created = await managed.anonymous('POST', '/api/tokens', { name: 'Script', expiresInDays: 1 }, { headers: proxy });
+    assert.equal(created.status, 201);
+    const res = await managed.anonymous('GET', '/api/llm/providers', undefined, {
+      headers: { ...proxy, Authorization: `Bearer ${created.body.token}`, 'x-forwarded-access-token': 'user-access-token' }
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.providers.find((p) => p.id === 'gateway').ready, false);
+  });
+
   it('does not take own keys', async () => {
     const res = await managed.anonymous('PUT', '/api/llm/keys/team', { key: GOOD_KEY }, {
       headers: { 'x-proxy-secret': PROXY_SECRET, 'x-forwarded-user': 'ann' }

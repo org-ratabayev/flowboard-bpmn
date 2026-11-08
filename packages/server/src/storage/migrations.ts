@@ -314,7 +314,7 @@ const SCHEMA_CHANGES: SchemaChange[] = [
   },
   {
     // Chat with AI providers. A conversation belongs to one user and one document. Messages hold
-    // provider-neutral content blocks (JSON). A turn is one prompt and everything the model did for
+    // provider-independent content blocks (JSON). A turn is one prompt and everything the model did for
     // it; at most one turn per conversation runs at a time (partial unique index). Tool calls that
     // the browser executes wait in chat_tool_calls until any server instance stores their result.
     id: '008_chat',
