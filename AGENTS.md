@@ -114,6 +114,8 @@ Single file: `node --test test/sharing.test.mjs` (after `pnpm build`), `pnpm tes
   nested objects) and cross-field `.refine` checks with actionable messages. Env vars are mapped in
   `configFromEnv`: `UPPER_SNAKE` names, unset or empty means `undefined` (so other sources win), numbers via
   `number('NAME')`, on/off flags as `env.X ? env.X !== 'off' : undefined`, lists comma-separated, JSON via `json()`.
+  Opt-in flags for risky features use the strict form `env.X ? env.X === 'on' : undefined`, so only `on` enables them
+  (example: `CHAT_CLAUDE_CODE`, which bills one account for every user).
   Priority: env > `APP_CONFIG` module > entry-point defaults > schema defaults. Secrets never get defaults.
 - **Database.** All SQL goes through `Db` / `Queryable` (`packages/server/src/storage/db.ts`): `$1, $2` placeholders,
   `db.transaction(fn)` for writes, `db.read(fn)` for reads. Every query must run on SQLite **and** Postgres: stick

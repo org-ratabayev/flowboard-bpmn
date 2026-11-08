@@ -11,7 +11,7 @@ function authHeaders(credentials: Credentials): Record<string, string> {
   return { ...(token ? { authorization: `Bearer ${token}` } : {}), ...credentials.headers };
 }
 
-/** Neutral messages → Chat Completions messages (tool results become role "tool" messages). */
+/** Provider-independent messages → Chat Completions messages (tool results become role "tool" messages). */
 export function toChatMessages(system: string, messages: LlmMessage[]) {
   const out: Array<Record<string, unknown>> = [{ role: 'system', content: system }];
   for (const m of messages) {

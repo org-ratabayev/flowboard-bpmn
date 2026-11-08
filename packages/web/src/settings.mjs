@@ -1,4 +1,4 @@
-// Settings page: personal access tokens.
+// Settings page: AI provider keys and personal access tokens.
 
 import './session.mjs';
 
@@ -90,7 +90,7 @@ load();
 const INTRO = {
   personal: 'The chat uses your own key with one of these providers. Your key is stored encrypted and can only be used ' +
     'from this browser while you are signed in; signing out deletes it. Tip: create a separate key for this app with a spending limit.',
-  managed: 'Your organization provides these AI models.'
+  managed: 'These AI models are provided by this server.'
 };
 
 function aiError(message) {
