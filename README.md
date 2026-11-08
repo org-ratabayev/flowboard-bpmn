@@ -33,6 +33,9 @@ module, built-in defaults.
 | `apps/standalone/` | The default entry point (`pnpm start`): reads `.env`, the environment and `APP_CONFIG` |
 | `test/` | Black-box HTTP tests |
 
+**Contributing / for agents:** start with [`AGENTS.md`](AGENTS.md): repo map, commands, conventions, security rules
+and the checklist for keeping the docs current.
+
 ## Tests
 
 ```sh
