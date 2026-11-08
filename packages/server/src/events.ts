@@ -1,17 +1,26 @@
-// "Access to document X changed": tells the live connections of this server instance at once
-// and, with Postgres, the other instances through LISTEN/NOTIFY.
+// Small "something changed, look again" signals between server instances. Each event carries only
+// an id; listeners re-read the database for the details.
+//
+//   access  access to document <id> changed: live connections re-check their role
+//   chat    conversation <id> changed: a tool result arrived, or a turn was cancelled or deleted
+//
+// Events reach the listeners of this instance at once and, with Postgres, the other instances
+// through LISTEN/NOTIFY (one channel per topic).
 
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import pg from 'pg';
 import type { Db } from './storage/db.ts';
 
-const CHANNEL = 'flowboard_access';
+export type Topic = 'access' | 'chat';
+
+const CHANNELS: Record<Topic, string> = { access: 'flowboard_access', chat: 'flowboard_chat' };
+const TOPIC_OF = new Map(Object.entries(CHANNELS).map(([topic, channel]) => [channel, topic as Topic]));
 const RECONNECT_MS = [1000, 2000, 5000, 10000, 30000];
 
-export interface AccessEvents {
-  publish(documentId: string): Promise<void>;
-  subscribe(listener: (documentId: string) => void): () => void;
+export interface EventBus {
+  publish(topic: Topic, id: string): Promise<void>;
+  subscribe(topic: Topic, listener: (id: string) => void): () => void;
   close(): Promise<void>;
 }
 
@@ -19,19 +28,19 @@ function localEmitter() {
   const emitter = new EventEmitter();
   emitter.setMaxListeners(0);
   return {
-    emit: (documentId: string) => emitter.emit('access', documentId),
-    subscribe(listener: (documentId: string) => void) {
-      emitter.on('access', listener);
-      return () => { emitter.off('access', listener); };
+    emit: (topic: Topic, id: string) => emitter.emit(topic, id),
+    subscribe(topic: Topic, listener: (id: string) => void) {
+      emitter.on(topic, listener);
+      return () => { emitter.off(topic, listener); };
     }
   };
 }
 
 /** Single instance (SQLite): events stay in this process. */
-export function createLocalEvents(): AccessEvents {
+export function createLocalEvents(): EventBus {
   const local = localEmitter();
   return {
-    async publish(documentId) { local.emit(documentId); },
+    async publish(topic, id) { local.emit(topic, id); },
     subscribe: local.subscribe,
     async close() {}
   };
@@ -53,7 +62,7 @@ export interface ListenerClient {
 export function createPostgresEvents(
   db: Db,
   options: { connectionString: string; listen: boolean; createClient?: () => ListenerClient }
-): AccessEvents {
+): EventBus {
   const local = localEmitter();
   const instance = crypto.randomUUID();
   let client: ListenerClient | null = null;
@@ -74,17 +83,18 @@ export function createPostgresEvents(
     };
     client = next;
     next.on('notification', (msg) => {
-      if (msg.channel !== CHANNEL || !msg.payload) return;
+      const topic = TOPIC_OF.get(msg.channel);
+      if (!topic || !msg.payload) return;
       try {
         const { i, d } = JSON.parse(msg.payload);
-        if (i !== instance && typeof d === 'string') local.emit(d);
+        if (i !== instance && typeof d === 'string') local.emit(topic, d);
       } catch { /* not ours */ }
     });
     next.on('error', retry);
     next.on('end', retry);
     try {
       await next.connect();
-      await next.query(`LISTEN ${CHANNEL}`);
+      for (const channel of Object.values(CHANNELS)) await next.query(`LISTEN ${channel}`);
       attempt = 0;
     } catch (err) {
       console.error('Postgres LISTEN failed, retrying:', (err as Error).message);
@@ -95,10 +105,10 @@ export function createPostgresEvents(
   if (options.listen) connect();
 
   return {
-    async publish(documentId) {
-      local.emit(documentId);
+    async publish(topic, id) {
+      local.emit(topic, id);
       try {
-        await db.read((q) => q.get('SELECT pg_notify($1, $2)', [CHANNEL, JSON.stringify({ i: instance, d: documentId })]));
+        await db.read((q) => q.get('SELECT pg_notify($1, $2)', [CHANNELS[topic], JSON.stringify({ i: instance, d: id })]));
       } catch (err) {
         console.error('Postgres NOTIFY failed:', (err as Error).message);
       }

@@ -143,7 +143,8 @@ providers can be added next to it later.
 ## AI providers
 
 The server decides which AI providers users may use; users cannot add providers or URLs of their own. (The chat
-above still runs through the Claude Code CLI; the next release moves it onto these providers.) There are two modes:
+panel above still runs through the Claude Code CLI; the server already offers a chat API on these providers,
+see [Chat API](#chat-api), and the next release moves the panel onto it.) There are two modes:
 
 - **`personal`** (default): every user brings their own API key, saved under **Settings → AI providers**. The default
   list offers Anthropic and OpenAI. The server pays for nothing.
@@ -198,6 +199,66 @@ them again). Changing it has the same effect. Not needed in `managed` mode witho
 **Pages are served with a strict Content Security Policy** (scripts only from the app itself, no inline scripts, no
 framing), so an injected script cannot run in the page that handles keys. Plugins must therefore load their scripts
 as files, not inline.
+
+## Chat API
+
+The server runs the assistant itself (an "agent loop"): it sends the conversation and the editor tools to the
+provider, streams the reply, has the user's browser run the tools the model calls, and repeats until the model is
+done. Conversations are stored in the database per user and document; they are private (even the document owner
+cannot read other people's conversations). Everyone with at least view access to a document can chat about it.
+
+All routes are below `/api/projects/:id/chat/`:
+
+| Route | |
+|---|---|
+| `GET conversations` | your conversations about this document, latest first |
+| `POST conversations` `{ providerId?, model?, title? }` | defaults: the first provider of the catalog and its default model |
+| `GET conversations/:cid` | the conversation with its `messages` (content blocks: `text`, `tool_use`, `tool_result`) and latest `turns` |
+| `PATCH conversations/:cid` `{ title?, providerId?, model? }` | rename it or switch the model |
+| `DELETE conversations/:cid` | delete it (a running turn stops) |
+| `POST conversations/:cid/turns` `{ message }` | send a message; the response is an event stream (below) |
+| `POST conversations/:cid/tool-results` `{ turnId, toolCallId, content, isError? }` | the browser's result of a tool call |
+| `POST conversations/:cid/turns/:turnId/cancel` | stop a running turn |
+
+The turn's event stream (`text/event-stream`, numbered events) sends `turn { turnId }`, then `text { text }` as the
+reply is written, `tool_request { turnId, id, name, input }` for each tool the browser must run,
+`tool_result { id, name, status }` when a call finished (`done`, `error`, `timeout`, or `refused` when the user may
+not run it), `usage { inputTokens, outputTokens }` per model call, and finally one of `done { stopReason, usage }`,
+`cancelled` or `error { message }`.
+
+**Tools.** The browser tools (`packages/server/src/chat/toolSpecs.ts`) read the open diagram (`bpmn_get_summary`,
+`bpmn_get_elements`, `bpmn_get_xml`, `bpmn_lint`, `bpmn_export_svg`) or change it (`bpmn_add_elements`,
+`bpmn_update_elements`, `bpmn_delete_elements`, `bpmn_connect`, `bpmn_replace_xml`, `bpmn_auto_layout`). The server
+reads the user's role again before each model call and each tool call: viewers are offered only the read tools, and
+an edit tool is refused even when the model calls it. A role change applies within the running turn. The browser has
+`CHAT_TOOL_TIMEOUT_MS` (30 s) to answer a tool call; otherwise the model is told that the editor did not answer.
+
+**Limits.** One running turn per conversation (`409` otherwise), at most 8 running turns per user (`429`), messages up
+to 64 KB, at most 20 model calls per turn, tool results up to 2 MB. Closing the request (the tab) cancels the turn and
+the provider request. Conversations without activity for `CHAT_IDLE_DAYS` (30) are deleted.
+
+**Keys.** For a provider with personal keys, the key is decrypted for the one turn with the browser's keyring cookie,
+used for the provider requests of that turn and never stored, logged or returned. So personal keys work only from the
+browser that saved them. **Access tokens** can use the chat API with providers that have server-side credentials
+(`server`, `adapter`); turns with personal keys are refused (`403`), and `identity` providers do not get the sign-in
+token on token requests.
+
+**System prompt.** `packages/server/src/chat/prompts/bpmn-assistant.md`; deployments can append their own text with
+`CHAT_SYSTEM_PROMPT_APPEND` (or `chat.systemPromptAppend` in an `APP_CONFIG` module).
+
+**Several server instances.** A turn runs on the instance that received its request and streams from there; no
+sticky sessions are needed. Tool results and cancels may reach any instance: it stores them in the database and
+publishes the conversation id on the event bus (Postgres `NOTIFY` on `flowboard_chat`), which wakes the instance
+running the turn; it also checks the database every 2 s in case a notification was lost. A running turn records a
+heartbeat; turns of an instance that stopped (no heartbeat for a minute) are marked failed.
+
+| Env var | Default | |
+|---|---|---|
+| `CHAT_TOOL_TIMEOUT_MS` | 30000 | how long the browser has to run a tool |
+| `CHAT_IDLE_DAYS` | 30 | conversations without activity are deleted after this many days |
+| `CHAT_SYSTEM_PROMPT_APPEND` | – | text added to the assistant's system prompt |
+
+`CHAT=off` turns off this API too.
 
 ## Plugins and upgrading
 

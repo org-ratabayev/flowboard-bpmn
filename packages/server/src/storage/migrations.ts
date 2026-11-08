@@ -311,6 +311,123 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         CREATE INDEX user_llm_keys_keyring_idx ON user_llm_keys (keyring_id);
       `
     }
+  },
+  {
+    // Chat with AI providers. A conversation belongs to one user and one document. Messages hold
+    // provider-neutral content blocks (JSON). A turn is one prompt and everything the model did for
+    // it; at most one turn per conversation runs at a time (partial unique index). Tool calls that
+    // the browser executes wait in chat_tool_calls until any server instance stores their result.
+    id: '008_chat',
+    sql: {
+      sqlite: `
+        CREATE TABLE chat_conversations (
+          id          TEXT PRIMARY KEY,
+          user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          provider_id TEXT NOT NULL,
+          model       TEXT NOT NULL,
+          title       TEXT NOT NULL,
+          created_at  TEXT NOT NULL,
+          updated_at  TEXT NOT NULL
+        );
+        CREATE INDEX chat_conversations_owner_idx ON chat_conversations (user_id, document_id, updated_at);
+        CREATE INDEX chat_conversations_updated_idx ON chat_conversations (updated_at);
+        CREATE TABLE chat_turns (
+          id               TEXT PRIMARY KEY,
+          conversation_id  TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+          user_id          TEXT NOT NULL,
+          status           TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed', 'cancelled')),
+          stop_reason      TEXT,
+          error            TEXT,
+          input_tokens     INTEGER NOT NULL DEFAULT 0,
+          output_tokens    INTEGER NOT NULL DEFAULT 0,
+          cancel_requested INTEGER NOT NULL DEFAULT 0,
+          started_at       TEXT NOT NULL,
+          heartbeat_at     TEXT NOT NULL,
+          finished_at      TEXT
+        );
+        CREATE UNIQUE INDEX chat_turns_one_running_idx ON chat_turns (conversation_id) WHERE status = 'running';
+        CREATE INDEX chat_turns_conversation_idx ON chat_turns (conversation_id, started_at);
+        CREATE INDEX chat_turns_running_user_idx ON chat_turns (user_id, status);
+        CREATE TABLE chat_messages (
+          conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+          seq             INTEGER NOT NULL,
+          turn_id         TEXT,
+          role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+          content         TEXT NOT NULL,
+          input_tokens    INTEGER,
+          output_tokens   INTEGER,
+          created_at      TEXT NOT NULL,
+          PRIMARY KEY (conversation_id, seq)
+        );
+        CREATE TABLE chat_tool_calls (
+          turn_id         TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
+          id              TEXT NOT NULL,
+          conversation_id TEXT NOT NULL,
+          name            TEXT NOT NULL,
+          input           TEXT NOT NULL,
+          status          TEXT NOT NULL CHECK (status IN ('pending', 'done', 'error', 'timeout')),
+          result          TEXT,
+          created_at      TEXT NOT NULL,
+          finished_at     TEXT,
+          PRIMARY KEY (turn_id, id)
+        );
+      `,
+      postgres: `
+        CREATE TABLE chat_conversations (
+          id          TEXT PRIMARY KEY,
+          user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          provider_id TEXT NOT NULL,
+          model       TEXT NOT NULL,
+          title       TEXT NOT NULL,
+          created_at  TIMESTAMPTZ NOT NULL,
+          updated_at  TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX chat_conversations_owner_idx ON chat_conversations (user_id, document_id, updated_at);
+        CREATE INDEX chat_conversations_updated_idx ON chat_conversations (updated_at);
+        CREATE TABLE chat_turns (
+          id               TEXT PRIMARY KEY,
+          conversation_id  TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+          user_id          TEXT NOT NULL,
+          status           TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed', 'cancelled')),
+          stop_reason      TEXT,
+          error            TEXT,
+          input_tokens     INTEGER NOT NULL DEFAULT 0,
+          output_tokens    INTEGER NOT NULL DEFAULT 0,
+          cancel_requested INTEGER NOT NULL DEFAULT 0,
+          started_at       TIMESTAMPTZ NOT NULL,
+          heartbeat_at     TIMESTAMPTZ NOT NULL,
+          finished_at      TIMESTAMPTZ
+        );
+        CREATE UNIQUE INDEX chat_turns_one_running_idx ON chat_turns (conversation_id) WHERE status = 'running';
+        CREATE INDEX chat_turns_conversation_idx ON chat_turns (conversation_id, started_at);
+        CREATE INDEX chat_turns_running_user_idx ON chat_turns (user_id, status);
+        CREATE TABLE chat_messages (
+          conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+          seq             INTEGER NOT NULL,
+          turn_id         TEXT,
+          role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+          content         TEXT NOT NULL,
+          input_tokens    INTEGER,
+          output_tokens   INTEGER,
+          created_at      TIMESTAMPTZ NOT NULL,
+          PRIMARY KEY (conversation_id, seq)
+        );
+        CREATE TABLE chat_tool_calls (
+          turn_id         TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
+          id              TEXT NOT NULL,
+          conversation_id TEXT NOT NULL,
+          name            TEXT NOT NULL,
+          input           TEXT NOT NULL,
+          status          TEXT NOT NULL CHECK (status IN ('pending', 'done', 'error', 'timeout')),
+          result          TEXT,
+          created_at      TIMESTAMPTZ NOT NULL,
+          finished_at     TIMESTAMPTZ,
+          PRIMARY KEY (turn_id, id)
+        );
+      `
+    }
   }
 ];
 

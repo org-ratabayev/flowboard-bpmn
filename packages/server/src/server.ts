@@ -2,6 +2,7 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { createAgentChat, type AgentChat } from './chat/agentRoutes.ts';
 import { createChatService } from './chat/chatService.ts';
 import { createClaudeCodeProvider } from './chat/claudeCode.ts';
 import { parseConfig, type Config, type ConfigInput } from './config.ts';
@@ -12,7 +13,7 @@ import { createAuthStore } from './auth/authStore.ts';
 import { isSameOrigin } from './auth/requestChecks.ts';
 import { createTokenStore, type TokenStore } from './auth/tokenStore.ts';
 import { createAccessStore, type AccessStore } from './storage/accessStore.ts';
-import { createLocalEvents, createPostgresEvents, type AccessEvents } from './events.ts';
+import { createLocalEvents, createPostgresEvents, type EventBus } from './events.ts';
 import { resolveAppSecret } from './appSecret.ts';
 import { createCatalog } from './llm/catalog.ts';
 import { createKeyStore } from './llm/keyStore.ts';
@@ -43,9 +44,10 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   let auth: Auth | null = null;
   let tokens: TokenStore | null = null;
   let access: AccessStore | null = null;
-  let events: AccessEvents | null = null;
+  let events: EventBus | null = null;
   let llm: LlmContext | null = null;
-  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'events' | 'viaToken'> = {
+  let agentChat: AgentChat | null = null;
+  const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'events' | 'viaToken' | 'agentChat' | 'upstreamToken'> = {
     live: createLiveHub(),
     chat: config.chat.enabled
       ? createChatService({ provider: createClaudeCodeProvider(config.chat.claudeCode), workDir: config.chat.workDir })
@@ -90,7 +92,14 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       if (isApi && parts[1] === 'llm') {
         return await handleLlm(llm!, { user: identity!, upstreamToken: auth!.upstreamToken(req), viaToken }, req, res, parts.slice(2));
       }
-      if (isApi) return await handleApi({ ...ctx, store: store!, identity: identity!, auth: auth!, tokens: tokens!, access: access!, events: events!, viaToken }, req, res, parts, url);
+      if (isApi) {
+        return await handleApi({
+          ...ctx,
+          store: store!, identity: identity!, auth: auth!, tokens: tokens!, access: access!, events: events!, viaToken, agentChat,
+          // a token request may pass through a proxy that signed in somebody else: never mix the two
+          upstreamToken: viaToken ? null : auth!.upstreamToken(req)
+        }, req, res, parts, url);
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
       if (parts.length === 0) return await serveStatic(res, path.join(publicDir, 'index.html'));
       if (parts.length === 1 && parts[0] === 'settings') return await serveStatic(res, path.join(publicDir, 'settings.html'));
@@ -135,7 +144,21 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       } else {
         llm = { mode: config.llm.mode, catalog, keys: null, publicOrigin: config.publicOrigin };
       }
-      events.subscribe((documentId) => {
+      if (config.chat.enabled && catalog.entries.length) {
+        agentChat = createAgentChat({
+          db: store.db,
+          bus: events,
+          access,
+          catalog,
+          keys: llm.keys,
+          systemPromptAppend: config.chat.systemPromptAppend,
+          maxActiveTurnsPerUser: config.chat.maxActiveTurnsPerUser,
+          idleDays: config.chat.idleDays,
+          limits: { maxIterations: config.chat.maxIterations, toolTimeoutMs: config.chat.toolTimeoutMs, pollMs: 2000 }
+        });
+        await agentChat.sweep();
+      }
+      events.subscribe('access', (documentId) => {
         ctx.live.refreshAccess(documentId, (userId) => accessStore.roleOf(userId, documentId))
           .catch((err) => console.error('Refreshing live access failed:', err));
       });
@@ -161,6 +184,8 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
           httpServer.closeAllConnections();
         });
       }
+      agentChat?.close();
+      agentChat = null;
       await events?.close();
       events = null;
       await store?.close();

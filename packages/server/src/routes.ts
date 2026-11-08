@@ -2,9 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { cleanDisplayName, type Auth, type Identity } from './auth/index.ts';
 import type { TokenStore } from './auth/tokenStore.ts';
 import { looksLikeBpmn } from './bpmn.ts';
+import { handleAgentChat, type AgentChat } from './chat/agentRoutes.ts';
 import type { createChatService } from './chat/chatService.ts';
 import { HttpError, readJson, send } from './http.ts';
-import type { AccessEvents } from './events.ts';
+import type { EventBus } from './events.ts';
 import type { LiveHub } from './live.ts';
 import { atLeast, isGrantRole, isVisibility, normalizeEmail, type AccessStore, type Role } from './storage/accessStore.ts';
 import { isProjectId, isVersionName, type DocumentStore } from './storage/index.ts';
@@ -16,13 +17,17 @@ export interface ApiContext {
   store: DocumentStore;
   live: LiveHub;
   chat: ReturnType<typeof createChatService> | null;
+  /** Chat with the configured AI providers (agent loop); null when chat is off or no provider is configured. */
+  agentChat: AgentChat | null;
+  /** The user's token from the sign-in, for AI providers using the user's identity (never with access tokens). */
+  upstreamToken: string | null;
   /** The signed-in user making the request. */
   identity: Identity;
   auth: Pick<Auth, 'kind' | 'canLogout'>;
   tokens: TokenStore;
   access: AccessStore;
   /** Announces access changes so connected people get their new role at once. */
-  events: AccessEvents;
+  events: EventBus;
   /** True when the request was authenticated with an access token rather than a browser session. */
   viaToken: boolean;
 }
@@ -66,7 +71,7 @@ async function handleAccess(
       const { visibility } = await readJson(req, 4096);
       if (!isVisibility(visibility)) return send(res, 400, { error: "visibility must be 'private' or 'everyone'" });
       await access.setVisibility(id, visibility, identity.id);
-      await ctx.events.publish(id);
+      await ctx.events.publish('access', id);
       return send(res, 200, await current());
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -80,13 +85,13 @@ async function handleAccess(
       const result = await access.grant(id, key, newRole, identity.id);
       if (result === 'unknown-user') return send(res, 404, { error: 'User not found' });
       if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
-      await ctx.events.publish(id);
+      await ctx.events.publish('access', id);
       return send(res, 200, await current());
     }
     if (req.method === 'DELETE') {
       if (key !== identity.id && !allowed('owner')) return;
       if (!(await access.revoke(id, key, identity.id))) return send(res, 404, { error: 'This user has no access to remove' });
-      await ctx.events.publish(id);
+      await ctx.events.publish('access', id);
       return send(res, 204, '');
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -105,7 +110,7 @@ async function handleAccess(
     }
     if (rest.length === 2 && req.method === 'DELETE') {
       if (!(await access.revokeLink(id, key, identity.id))) return send(res, 404, { error: 'Link not found' });
-      await ctx.events.publish(id);
+      await ctx.events.publish('access', id);
       return send(res, 204, '');
     }
     return send(res, 405, { error: 'Method not allowed' });
@@ -120,7 +125,7 @@ async function handleAccess(
       if (!isGrantRole(body.role)) return send(res, 400, { error: "role must be 'viewer' or 'editor'" });
       const result = await access.invite(id, email, body.role, identity.id);
       if (result === 'owner') return send(res, 400, { error: 'The owner already has full access' });
-      if (result === 'granted') await ctx.events.publish(id);
+      if (result === 'granted') await ctx.events.publish('access', id);
       return send(res, 200, { result, access: await current() });
     }
     if (rest.length === 2 && req.method === 'DELETE') {
@@ -191,7 +196,7 @@ export async function handleApi(
     const result = await ctx.access.joinByLink(String(token ?? ''), identity.id);
     if (result === 'invalid') return send(res, 404, { error: 'This share link is not valid. It may have been revoked.' });
     if (result === 'expired') return send(res, 410, { error: 'This share link has expired. Ask the owner for a new one.' });
-    await ctx.events.publish(result.documentId); // the user's open tabs on the project get the raised role
+    await ctx.events.publish('access', result.documentId); // the user's open tabs on the project get the raised role
     return send(res, 200, { projectId: result.documentId, role: result.role });
   }
   if (resource !== 'projects') return send(res, 404, { error: 'Not found' });
@@ -271,6 +276,11 @@ export async function handleApi(
   }
 
   if (sub === 'access') return handleAccess(ctx, req, res, id, parts.slice(4), role, allowed);
+
+  if (sub === 'chat' && parts.length > 4) {
+    if (!ctx.agentChat) return send(res, 404, { error: 'Chat is disabled on this server' });
+    return handleAgentChat(ctx.agentChat, { identity, viaToken: ctx.viaToken, upstreamToken: ctx.upstreamToken }, req, res, id, parts.slice(4));
+  }
 
   if (sub === 'chat' && req.method === 'POST') {
     if (!allowed('editor')) return;
