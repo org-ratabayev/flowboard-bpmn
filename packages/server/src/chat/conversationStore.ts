@@ -2,7 +2,7 @@
 // conversation and any instance can accept a tool result from the browser.
 //
 //   conversation  one user, one document, one provider and model; deleted after idling for a while
-//   message       provider-neutral content blocks (text, tool_use, tool_result) in order
+//   message       provider-independent content blocks (text, tool_use, tool_result) in order
 //   turn          one prompt and the model's work on it: running → done | failed | cancelled
 //   tool call     a browser tool call of a turn, waiting for (or holding) the browser's answer
 

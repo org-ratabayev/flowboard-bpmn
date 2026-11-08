@@ -2,7 +2,7 @@
 // cannot add providers or URLs of their own.
 //
 //   personal  (default) every provider needs the user's own key; the server pays for nothing
-//   managed   the organization configures providers; credentials come from a server secret,
+//   managed   the operator configures providers; credentials come from a server secret,
 //             from the signed-in user's own token, or from an adapter function (APP_CONFIG)
 //
 // With AUTH=dev the local Claude Code CLI can be added too (credentials `local`: the account

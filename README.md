@@ -172,7 +172,7 @@ two modes:
 
 - **`personal`** (default): every user brings their own API key, saved under **Settings → AI providers**. The default
   list offers Anthropic and OpenAI. The server pays for nothing.
-- **`managed`**: the organization configures the providers and their credentials, and users cannot add keys.
+- **`managed`**: the server operator configures the providers and their credentials, and users cannot add keys.
 
 | Env var | Default | |
 |---|---|---|
@@ -185,7 +185,7 @@ Each entry of `LLM_PROVIDERS` (or `llm.providers` in an `APP_CONFIG` module):
 
 ```json
 [
-  { "id": "gateway", "label": "Company models", "type": "openai-compatible", "baseUrl": "https://llm.example.com/v1",
+  { "id": "gateway", "label": "Gateway models", "type": "openai-compatible", "baseUrl": "https://llm.example.com/v1",
     "models": ["large", "small"], "defaultModel": "large", "credentials": { "from": "identity" },
     "headers": { "x-app": "flowboard" }, "userIdHeader": "x-user-id" }
 ]

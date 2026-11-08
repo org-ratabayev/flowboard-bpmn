@@ -1,3 +1,7 @@
+// /api…  The JSON API below the authentication of server.ts: the signed-in user, access tokens,
+// users, share links, and the project routes (role check first, then access, live, history,
+// download and the chat, which is dispatched to chat/agentRoutes.ts).
+
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { cleanDisplayName, type Auth, type Identity } from './auth/index.ts';
 import type { TokenStore } from './auth/tokenStore.ts';

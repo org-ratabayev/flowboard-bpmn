@@ -1,3 +1,7 @@
+// createServer: builds the HTTP server from the configuration. Checks the Origin of state-changing
+// requests (CSRF), authenticates every request (access token or session), routes to /auth, the
+// pages, static files, /api/llm and /api, and wires storage, events, AI providers and chat on start.
+
 import fsp from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';

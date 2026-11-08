@@ -1,4 +1,4 @@
-// A provider-neutral way to talk to chat models with tools. Messages use content blocks
+// A provider-independent way to talk to chat models with tools. Messages use content blocks
 // (text, tool calls, tool results); each provider converts them to its own API.
 
 export type ContentBlock =

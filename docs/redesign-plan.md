@@ -1,6 +1,7 @@
 # Redesign plan: storage, access control, AI chat and MCP
 
-Status: **proposed**, not implemented. This document is written so that an engineer or an LLM coding agent can
+Status: **in progress**. Phases 1-6 are done (implementation notes per phase below); next are 7-9 (MCP) and 10
+(docs, example deployment). This document is written so that an engineer or an LLM coding agent can
 implement it phase by phase without further context. Each phase lists tasks, files and acceptance criteria.
 
 ## 0. Background
@@ -166,7 +167,7 @@ export default defineConfig({
 
 ```ts
 interface Identity {
-  id: string;            // stable internal user id (users.id), assigned by the core
+  id: string;            // stable user id (users.id), assigned by the core
   provider: string;      // 'dev' | 'trusted-headers' | 'oidc' | custom
   subject: string;       // provider's stable subject
   name: string;
@@ -473,10 +474,10 @@ element ids", and how to use external MCP tools. Deployments may append text via
 The server configuration holds a **provider catalog** (`llm.providers`); users choose only from it and cannot enter
 URLs. Each entry names where its credentials come from: `user-key`, `server` (a secret from an env var named in the
 entry), `identity` (the signed-in user's upstream token, e.g. forwarded by the authenticating proxy) or `adapter` (a
-function from the `APP_CONFIG` module, the hook for organization-specific schemes such as token exchange). Two modes:
+function from the `APP_CONFIG` module, the hook for deployment-specific schemes such as token exchange). Two modes:
 
 - **`personal`** (default): only `user-key` entries are allowed; the default catalog offers Anthropic and OpenAI.
-- **`managed`**: the organization defines the catalog; any credential source except `user-key` is typical.
+- **`managed`**: the server operator defines the catalog; any credential source except `user-key` is typical.
 
 Personal keys are encrypted with AES-256-GCM under `HKDF(serverPart(APP_SECRET) ‖ browserSecret, salt)`, where
 `browserSecret` lives in an `HttpOnly`, `SameSite=Strict` cookie, with `user, provider, keyring` as associated data.
@@ -620,7 +621,7 @@ Implementation notes (done):
 - Tables `documents` and `document_versions` only. Users, sessions, tokens, grants, share links, audit and
   `live_state` are added by the migrations of the phases that use them (3–5).
 - Document ids and version names keep the earlier formats (slug ids, timestamp version names) instead of UUIDs and
-  `seq`-only versions, so existing links and the browser app work unchanged. `seq` orders versions internally.
+  `seq`-only versions, so existing links and the browser app work unchanged. `seq` orders the versions.
   New documents can switch to random ids in Phase 4 without breaking existing ones.
 - Postgres in tests is PGlite (in-process, wire protocol via pglite-socket) instead of Docker; it runs one session,
   so tests use a pool of one connection. `docker-compose.yml` is for trying a real Postgres locally.
@@ -738,7 +739,7 @@ Split into three PRs:
 Implementation notes for 6b (done):
 - Routes under `/api/projects/:id/chat/conversations…` (README "Chat API"); the old `POST /api/projects/:id/chat`
   (Claude Code CLI) is unchanged until 6c. Migration `008_chat`: `chat_conversations` (user, document, provider,
-  model, title), `chat_messages` (ordered neutral content blocks as JSON, usage), `chat_turns` (status, stop reason,
+  model, title), `chat_messages` (ordered provider-independent content blocks as JSON, usage), `chat_turns` (status, stop reason,
   error, usage, cancel flag, heartbeat; a partial unique index allows one running turn per conversation) and
   `chat_tool_calls` (keyed by turn and tool-use id; pending, done, error or timeout).
 - `chat/agentLoop.ts` runs a turn; `chat/conversationStore.ts` stores it; `chat/history.ts` repairs stored history
@@ -889,7 +890,7 @@ Acceptance: a new developer can follow README to run the core with SQLite in und
 | # | Question | Default |
 |---|---|---|
 | Q1 | Public product/package name and license (MIT vs. Apache-2.0)? | scope `@flowboard`, license undecided (must allow bundling MIT/ISC/Apache code and the bpmn.io license) |
-| Q2 | Who pays for AI in multi-user mode: server key, user's upstream token, or personal keys? | Answered: `personal` mode (own keys) by default, `managed` mode for organizations (7.6) |
+| Q2 | Who pays for AI in multi-user mode: server key, user's upstream token, or personal keys? | Answered: `personal` mode (own keys) by default, `managed` mode for shared deployments (7.6) |
 | Q3 | Do viewers see version history including author names? | yes |
 | Q4 | Allow anonymous (not signed-in) access via share links? | no |
 | Q5 | Soft-delete retention period? | 30 days |

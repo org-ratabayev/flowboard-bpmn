@@ -1,3 +1,6 @@
+// The server configuration: one zod schema with defaults and cross-field checks, the mapping of
+// environment variables onto it, and loading/merging with an APP_CONFIG module (env wins).
+
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -104,7 +107,7 @@ const baseSchema = z.object({
     .object({
       /**
        * personal: every provider needs the user's own key (the server pays for nothing).
-       * managed: the organization configures providers and their credentials.
+       * managed: the server operator configures providers and their credentials.
        */
       mode: z.enum(['personal', 'managed']).default('personal'),
       /** The providers users can choose from; defaults depend on the mode (see llm/catalog.ts). */
