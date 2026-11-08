@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Test double for the Claude Code CLI (`claude -p --output-format json`).
 //
-// Records how it was called in ./fake-claude-call.json (the chat working directory) and
-// behaves according to keywords in the prompt:
+// Appends how it was called (args, prompt, working directory, diagram) as one JSON line to the
+// file in FAKE_CLAUDE_LOG and behaves according to keywords in the prompt:
 //   ADD_TASK  adds a task to ./diagram.bpmn      BREAK  writes invalid content to it
 //   FAIL      reports an error result            CRASH  exits with code 3 and no JSON
 //   SLOW      answers after 1.5 s                otherwise answers without changes
@@ -12,13 +12,15 @@ import fs from 'node:fs';
 
 const args = process.argv.slice(2);
 const prompt = fs.readFileSync(0, 'utf8');
-const resume = args.indexOf('--resume');
-const sessionId = resume === -1 ? randomUUID() : args[resume + 1];
+const diagram = fs.existsSync('diagram.bpmn') ? fs.readFileSync('diagram.bpmn', 'utf8') : null;
 
-fs.writeFileSync('fake-claude-call.json', JSON.stringify({ args, prompt }));
+if (process.env.FAKE_CLAUDE_LOG) {
+  fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, `${JSON.stringify({ args, prompt, cwd: process.cwd(), diagram })}\n`);
+}
 
-const answer = (result) =>
-  process.stdout.write(JSON.stringify({ is_error: false, result, session_id: sessionId, total_cost_usd: 0.01 }));
+const answer = (result) => process.stdout.write(JSON.stringify({
+  is_error: false, result, session_id: randomUUID(), total_cost_usd: 0.01, usage: { input_tokens: 120, output_tokens: 30 }
+}));
 
 if (prompt.includes('FAIL')) {
   process.stdout.write(JSON.stringify({ is_error: true, result: 'Simulated failure' }));

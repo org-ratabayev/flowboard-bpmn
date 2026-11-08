@@ -4,12 +4,16 @@
 //   personal  (default) every provider needs the user's own key; the server pays for nothing
 //   managed   the organization configures providers; credentials come from a server secret,
 //             from the signed-in user's own token, or from an adapter function (APP_CONFIG)
+//
+// With AUTH=dev the local Claude Code CLI can be added too (credentials `local`: the account
+// signed in on the server machine), see claudeCodeCli.ts.
 
 import { createAnthropicProvider } from './anthropic.ts';
+import { createClaudeCodeProvider, type ClaudeCodeOptions } from './claudeCodeCli.ts';
 import { createOpenAiCompatibleProvider } from './openai.ts';
 import type { Credentials, LlmProvider } from './types.ts';
 
-export type CredentialSource = 'user-key' | 'server' | 'identity' | 'adapter';
+export type CredentialSource = 'user-key' | 'server' | 'identity' | 'adapter' | 'local';
 
 /** What an adapter gets to decide the credentials of one request. */
 export interface AdapterContext {
@@ -25,8 +29,10 @@ export type CredentialsAdapter = (context: AdapterContext) => Promise<Credential
 export interface ProviderEntry {
   id: string;
   label: string;
-  type: 'anthropic' | 'openai-compatible';
+  type: 'anthropic' | 'openai-compatible' | 'claude-code-cli';
   baseUrl?: string;
+  /** Only for `claude-code-cli`. */
+  cli?: ClaudeCodeOptions;
   /** Models offered to users; empty means "ask the provider". */
   models: string[];
   defaultModel?: string;
@@ -34,7 +40,8 @@ export interface ProviderEntry {
     | { from: 'user-key' }
     | { from: 'server'; secretEnv: string }
     | { from: 'identity' }
-    | { from: 'adapter'; adapter: CredentialsAdapter };
+    | { from: 'adapter'; adapter: CredentialsAdapter }
+    | { from: 'local' };
   /** Extra headers sent with every request (e.g. an app identifier a gateway expects). */
   headers: Record<string, string>;
   /** Header that carries the user's subject, for gateways that count usage per user. */
@@ -91,7 +98,9 @@ export function createCatalog(entries: ProviderEntry[], env: NodeJS.ProcessEnv =
     entry.id,
     entry.type === 'anthropic'
       ? createAnthropicProvider({ baseUrl: entry.baseUrl })
-      : createOpenAiCompatibleProvider({ baseUrl: entry.baseUrl! })
+      : entry.type === 'claude-code-cli'
+        ? createClaudeCodeProvider(entry.cli!)
+        : createOpenAiCompatibleProvider({ baseUrl: entry.baseUrl! })
   ]));
 
   async function resolve(entry: ProviderEntry, context: RequestContext): Promise<Resolved> {
@@ -112,6 +121,8 @@ export function createCatalog(entries: ProviderEntry[], env: NodeJS.ProcessEnv =
         const credentials = await entry.credentials.adapter({ user: context.user, upstreamToken: context.upstreamToken, providerId: entry.id });
         return credentials ? withExtra(credentials) : { unavailable: 'Not available for your account' };
       }
+      case 'local':
+        return { credentials: {} };
     }
   }
 

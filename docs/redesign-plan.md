@@ -417,7 +417,8 @@ browser ─POST /api/chat/:conversationId/prompt─▶ server agent loop ─▶ 
   Browser tool results come back to whichever instance received them, are written to the database, and the event bus
   (Postgres NOTIFY) wakes the instance running the turn.
 - Limits: max 8 active turns per user, prompt text ≤ 64 KB, ≤ 3 attachments per message, ≤ 2 MB each, ≤ 6 MB total;
-  conversations idle for 30 days are deleted. Supported attachments: images, PDF, text/CSV/Markdown, `.bpmn`.
+  conversations idle for 30 days are deleted. Supported attachments: text/CSV/Markdown, `.bpmn` (6c); images and
+  PDF later.
 - SSE events are numbered. (6b: a disconnect cancels the turn, so there is no replay; the stored history is the
   source of truth after a reload.)
 
@@ -464,7 +465,7 @@ element ids", and how to use external MCP tools. Deployments may append text via
   results, never as system instructions.
 - Write tools always need the editor role, checked at execution time, not only when listing tools.
 - The `claude-code-cli` provider keeps today's lock-down (`--restricted` to a temp folder, no shell, no web, no MCP,
-  no user settings) and is dev-only by default (4.4).
+  no user settings) and is dev-only (4.4; since 6c only with `AUTH=dev`, without a multi-user opt-in).
 - Rate limits per user: prompts per minute (default 10), concurrent turns (default 1 per conversation).
 
 ### 7.6 Who pays (configurable)
@@ -731,8 +732,8 @@ Split into three PRs:
 - **6b, agent loop** (done): conversation history in the database; agent loop with limits; browser tool bridge
   through the database and event bus (7.1, 7.2); role-filtered tools; tests against a local stand-in that speaks the
   Anthropic streaming protocol and replays scripted tool calls (instead of a `fake` provider type in production code).
-- **6c, chat UI and tools**: browser tool executors using bpmn-js `modeling`, proposal "Keep / Undo", diff
-  highlighting; model picker; usage/cost display; rate limits; `claude-code-cli` as a provider (dev or managed only).
+- **6c, chat UI and tools** (done): browser tool executors using bpmn-js `modeling`, proposal "Keep / Undo", diff
+  highlighting; model picker; usage/cost display; rate limits; `claude-code-cli` as a provider (dev only).
 
 Implementation notes for 6b (done):
 - Routes under `/api/projects/:id/chat/conversations…` (README "Chat API"); the old `POST /api/projects/:id/chat`
@@ -755,6 +756,43 @@ Implementation notes for 6b (done):
   connections, because PGlite serves one session. Not yet verified on a real multi-instance Postgres.
 - The 8-turns-per-user limit is checked in a transaction but can be exceeded by one or two under concurrent starts
   on several instances (no lock across instances).
+
+Implementation notes for 6c (done):
+- The panel (`packages/web/src/chat/`) uses only the 6b API: conversation list with new/rename/delete, model picker,
+  streamed reply with Stop, token use (and cost when reported) under each reply, a pointer to Settings when no
+  provider is ready. Viewers chat with read-only tools.
+- Tool executors (`chat/tools.mjs`, `chat/edit.mjs`, `chat/inspect.mjs`) work on the open modeler: element edits
+  through `modeling`; `bpmn_replace_xml` is validated in the browser with the editor's moddle (warnings such as
+  unknown elements, duplicate ids or unresolved references reject it) and laid out when it has no DI;
+  `bpmn_auto_layout` runs bpmn-auto-layout on a copy and moves the existing shapes and edges (undoable; refused
+  for pools and lanes); `bpmn_lint` uses the editor's bpmnlint config. Input is checked before the first change.
+- Proposal (`chat/proposal.mjs`): before the first edit of a turn the XML and the undo-stack position are recorded;
+  at the end the bpmn-js-differ result is highlighted with the "what changed" colours, with Keep / Undo in the
+  reply and the banner. Undo steps back through the undo stack, or restores the copy when the stack was cleared (a
+  replace, or a change received from others). A new prompt or a save keeps an open proposal. While a turn runs,
+  remote changes wait like during a drag (applying them would clear the undo stack).
+- Version note: new tool `bpmn_summarize_changes { title, details[] }` (editor role, so only offered with the edit
+  tools); the system prompt asks for it once after the edits. Without it, a summary is built from the differ
+  result. Saving after AI changes opens a dialog with the note pre-filled (`AI: <titles>` plus merged points from
+  all AI turns since the last save), editable. The prompt text is never written into the version history.
+- Attachments: text files only (text, CSV, Markdown, `.bpmn`), sent as text blocks inside `<attachment>`, with the
+  7.1 limits. Images and PDFs need per-provider content blocks and are left for later.
+- `claude-code-cli` is a provider type added by the server when `CHAT_CLAUDE_CODE=on`; the config refuses it unless
+  `AUTH=dev` (no managed-mode opt-in, unlike 4.4's `allowInMultiUser`, because it bills one account for everyone).
+  The adapter asks the editor for `bpmn_get_xml`, runs the locked-down CLI on a copy, and returns a changed file
+  through `bpmn_replace_xml`; earlier turns go into the prompt as text. The old `POST /api/projects/:id/chat` and
+  `chatService.ts` are removed.
+- `GET /api/llm/providers/:id/models` lists chat models of providers without a fixed list (with the user's key for
+  that request; refused with access tokens); the picker falls back to a typed model name.
+- Rate limit: `CHAT_TURNS_PER_MINUTE` (default 10, `0` off) counted from `chat_turns` in the same transaction as
+  the concurrency checks, so it holds across instances; `429` with `code: 'rate-limited'` and `Retry-After`.
+  Deleting a conversation deletes its turns, so they stop counting.
+- Tests: jsdom unit tests for the browser modules (`packages/web/src/**/*.test.mjs`), API tests for the new
+  routes and the CLI provider, and a headless-Chrome check over CDP (`test/browser/chat-flow.mjs`) against a local
+  stand-in speaking the Anthropic streaming protocol, which also checks the tool results the editor sent. It
+  prints `BROWSER TESTS SKIPPED` when Chrome is missing.
+- Not done: undoing a proposal while others keep editing the same diagram only works on whole-diagram terms (the
+  copy wins); proposals are not restored after a reload; no cost table for providers that do not report cost.
 
 Acceptance: with the fake provider, an end-to-end test adds a task between two elements through browser tools, the
 change is undoable, and saving records `AI: …`; a viewer's chat cannot call edit tools (server rejects even if the

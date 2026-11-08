@@ -43,17 +43,27 @@
     <div id="canvas"></div>
     <aside class="side-panel properties" id="properties"></aside>
     <aside class="side-panel chat" id="chat">
-      <h2>Chat with Claude <span><button id="newChat" title="Start a new conversation">New chat</button> <button id="closeChat">Close</button></span></h2>
+      <div class="chat-head">
+        <select id="chatConversation" title="Your conversations about this diagram"></select>
+        <button type="button" id="chatNew" title="Start a new conversation">New</button>
+        <button type="button" id="chatRename" title="Rename this conversation">Rename</button>
+        <button type="button" id="chatDelete" title="Delete this conversation">Delete</button>
+        <button type="button" id="closeChat">Close</button>
+      </div>
       <ul class="chat-log" id="chatLog"></ul>
+      <p class="chat-notice" id="chatNotice" hidden></p>
       <form class="chat-form" id="chatForm">
         <div class="chat-files" id="chatFiles"></div>
-        <textarea id="chatInput" rows="3" placeholder="Describe the change… (Enter to send, Shift+Enter for a new line)"></textarea>
+        <textarea id="chatInput" rows="3" placeholder="Ask or describe a change… (Enter to send, Shift+Enter for a new line)"></textarea>
         <div class="chat-actions">
-          <button type="button" id="chatAttach" title="PDF, images, text, CSV, Markdown or .bpmn files">Attach files…</button>
-          <input type="file" id="chatFileInput" multiple hidden>
+          <button type="button" id="chatAttach" title="Text, CSV, Markdown or .bpmn files: up to 3, 2 MB each">Attach…</button>
+          <input type="file" id="chatFileInput" multiple hidden accept=".txt,.csv,.md,.markdown,.bpmn">
+          <select id="chatModel" title="AI model"></select>
           <span class="spacer"></span>
+          <button type="button" id="chatCancel" hidden>Stop</button>
           <button type="submit" class="primary" id="chatSend">Send</button>
         </div>
+        <input type="text" id="chatModelText" placeholder="Model name, e.g. gpt-4.1" autocomplete="off" hidden>
       </form>
     </aside>
     <aside class="side-panel history" id="history">
@@ -62,6 +72,19 @@
     </aside>
   </div>
   <div class="toast" id="toast"></div>
+
+  <dialog class="save-dialog" id="saveDialog">
+    <form method="dialog" id="saveForm">
+      <h2>Save version</h2>
+      <label for="saveNote">Version note (shown in History)</label>
+      <textarea id="saveNote" rows="6" maxlength="2000"></textarea>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" id="saveCancel">Cancel</button>
+        <button type="submit" class="primary" id="saveConfirm">Save</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="/src/editor.mjs"></script>
 </body>

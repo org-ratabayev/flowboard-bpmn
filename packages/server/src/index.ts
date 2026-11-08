@@ -9,7 +9,7 @@ export {
   type LoadConfigOptions,
   type PartialConfigInput
 } from './config.ts';
-export type { ChatProvider, ChatRunOptions, ChatRunResult } from './chat/types.ts';
+export type { ContentBlock, Credentials, LlmEvent, LlmMessage, LlmProvider, StreamRequest, ToolSpec } from './llm/types.ts';
 export {
   exportToFolder,
   importFromFolder,

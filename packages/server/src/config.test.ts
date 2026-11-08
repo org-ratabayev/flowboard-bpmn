@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { configFromEnv, loadConfigFromEnv, mergeConfig, parseConfig } from './config.ts';
 import { DEFAULT_PERSONAL_PROVIDERS } from './llm/catalog.ts';
+import { claudeCodeEntry } from './llm/claudeCodeCli.ts';
 
 describe('parseConfig', () => {
   it('applies defaults', () => {
@@ -33,9 +34,10 @@ describe('parseConfig', () => {
         toolTimeoutMs: 30000,
         maxIterations: 20,
         maxActiveTurnsPerUser: 8,
+        turnsPerMinute: 10,
         idleDays: 30,
         workDir: path.join(os.tmpdir(), 'bpmn-chat'),
-        claudeCode: { bin: 'claude', model: '', timeoutMs: 300000 }
+        claudeCode: { enabled: false, bin: 'claude', model: '', timeoutMs: 300000 }
       }
     });
   });
@@ -141,7 +143,7 @@ describe('loadConfigFromEnv', () => {
       expect(config.port).toBe(5000);
       expect(config.host).toBe('10.0.0.1');
       expect(config.publicDir).toBe('/default/public');
-      expect(config.chat.claudeCode).toEqual({ bin: 'module-bin', model: 'from-override', timeoutMs: 300000 });
+      expect(config.chat.claudeCode).toEqual({ enabled: false, bin: 'module-bin', model: 'from-override', timeoutMs: 300000 });
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -188,5 +190,31 @@ describe('AI provider settings', () => {
     expect(merged).toMatchObject({ llm: { mode: 'managed', providers: [{ id: 'gw' }] }, appSecret: 's'.repeat(40), auth: { trustedHeaders: { tokenHeader: 'x-token' } } });
     expect(() => configFromEnv({ LLM_PROVIDERS: '[{' })).toThrow('LLM_PROVIDERS must be valid JSON');
     expect(() => parseConfig({ publicDir: '/p', appSecret: 'short' })).toThrow(/at least 32/);
+  });
+});
+
+describe('Claude Code CLI provider', () => {
+  it('is described by a catalog entry with the CLI settings', () => {
+    const config = parseConfig({ publicDir: '/p', chat: { claudeCode: { enabled: true, model: 'opus' } } });
+    expect(config.llm.providers.map((p) => p.id)).toEqual(['anthropic', 'openai']); // added by the server
+    // parsing the parsed configuration again gives the same result
+    expect(parseConfig(config)).toEqual(config);
+    const entry = claudeCodeEntry(config.chat.claudeCode, config.chat.workDir);
+    expect(entry).toMatchObject({ id: 'claude-code', type: 'claude-code-cli', credentials: { from: 'local' }, defaultModel: 'opus' });
+    expect(entry.models).toContain('default');
+    expect(entry.cli).toEqual({ bin: 'claude', timeoutMs: 300000, workDir: path.join(os.tmpdir(), 'bpmn-chat') });
+  });
+
+  it('is refused with any other sign-in, also in managed mode', () => {
+    const proxy = { kind: 'trusted-headers' as const, trustedHeaders: { proxySecret: 'a-long-enough-proxy-secret' } };
+    expect(() => parseConfig({ publicDir: '/p', auth: proxy, chat: { claudeCode: { enabled: true } } })).toThrow(/needs AUTH=dev/);
+    expect(() => parseConfig({ publicDir: '/p', auth: proxy, llm: { mode: 'managed' }, chat: { claudeCode: { enabled: true } } })).toThrow(/needs AUTH=dev/);
+  });
+
+  it('is switched on with CHAT_CLAUDE_CODE=on and limited with CHAT_TURNS_PER_MINUTE', () => {
+    const env = configFromEnv({ CHAT_CLAUDE_CODE: 'on', CHAT_TURNS_PER_MINUTE: '0' });
+    expect(env.chat?.claudeCode?.enabled).toBe(true);
+    expect(env.chat?.turnsPerMinute).toBe(0);
+    expect(configFromEnv({ CHAT_CLAUDE_CODE: 'off' }).chat?.claudeCode?.enabled).toBe(false);
   });
 });

@@ -6,7 +6,7 @@
 //   GET    conversations/:cid                  conversation, messages and latest turns
 //   PATCH  conversations/:cid { title?, providerId?, model? }
 //   DELETE conversations/:cid                  (stops a running turn)
-//   POST   conversations/:cid/turns { message }   runs one turn; the response is an event stream
+//   POST   conversations/:cid/turns { message, attachments? }   runs one turn; the response is an event stream
 //   POST   conversations/:cid/tool-results { turnId, toolCallId, content, isError? }
 //   POST   conversations/:cid/turns/:tid/cancel
 //
@@ -24,6 +24,7 @@ import { redact } from '../llm/routes.ts';
 import type { AccessStore } from '../storage/accessStore.ts';
 import type { Db } from '../storage/db.ts';
 import { runTurn, type AgentLimits, type TurnEvent } from './agentLoop.ts';
+import { ATTACHMENT_LIMITS, parseAttachments } from './attachments.ts';
 import { createConversationStore, type ConversationStore } from './conversationStore.ts';
 import { systemPrompt } from './systemPrompt.ts';
 
@@ -45,6 +46,8 @@ export interface AgentChatOptions {
   keys: KeyStore | null;
   systemPromptAppend: string;
   maxActiveTurnsPerUser: number;
+  /** Turns one user may start per minute; 0 means no limit. */
+  turnsPerMinute: number;
   idleDays: number;
   limits: AgentLimits;
 }
@@ -128,10 +131,13 @@ async function runTurnRequest(
   const conversation = await store.get(userId, documentId, conversationId);
   if (!conversation) return send(res, 404, { error: 'Conversation not found' });
 
-  const body = await readJson(req, MAX_PROMPT_BYTES * 4);
+  // JSON escaping can make text up to six times longer (\uXXXX), so allow some room
+  const body = await readJson(req, MAX_PROMPT_BYTES * 4 + ATTACHMENT_LIMITS.totalBytes * 2);
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message) return send(res, 400, { error: 'Message is empty' });
   if (Buffer.byteLength(message) > MAX_PROMPT_BYTES) return send(res, 413, { error: `Messages are limited to ${MAX_PROMPT_BYTES / 1024} KB` });
+  const attached = parseAttachments(body.attachments);
+  if ('error' in attached) return send(res, attached.status, { error: attached.error });
 
   const entry = chat.catalog.get(conversation.providerId);
   if (!entry) return send(res, 409, { error: 'This conversation uses an AI provider that is no longer offered; choose another one', code: 'provider-unavailable' });
@@ -151,15 +157,19 @@ async function runTurnRequest(
 
   const started = await store.startTurn(conversationId, userId, {
     maxActive: chat.maxActiveTurnsPerUser,
-    staleBefore: new Date(Date.now() - STALE_AFTER_MS).toISOString()
+    staleBefore: new Date(Date.now() - STALE_AFTER_MS).toISOString(),
+    perMinute: chat.turnsPerMinute
   });
   if ('busy' in started) {
+    if (started.busy === 'rate') {
+      return send(res, 429, { error: `You can send at most ${chat.turnsPerMinute} messages per minute; try again in ${started.retryAfterSeconds} s`, code: 'rate-limited', retryAfterSeconds: started.retryAfterSeconds }, { 'Retry-After': String(started.retryAfterSeconds) });
+    }
     return started.busy === 'conversation'
       ? send(res, 409, { error: 'The assistant is still answering the previous message', code: 'turn-running' })
       : send(res, 429, { error: `At most ${chat.maxActiveTurnsPerUser} chats can be answered at the same time`, code: 'too-many-turns' });
   }
   const turnId = started.turn.id;
-  await store.appendMessage(conversationId, turnId, 'user', [{ type: 'text', text: message }]);
+  await store.appendMessage(conversationId, turnId, 'user', [{ type: 'text', text: message }, ...attached.blocks]);
   if (!conversation.title) await store.update(conversationId, { title: cleanTitle(message.split('\n')[0]) || 'Chat' });
 
   const stream = eventStream(res);

@@ -36,15 +36,20 @@ module, built-in defaults.
 ## Tests
 
 ```sh
-pnpm test        # unit tests, then the HTTP API tests
+pnpm test        # unit tests, then the HTTP API tests, then the browser check
 pnpm typecheck
 ```
 
-- `pnpm test:unit` runs vitest on the `*.test.ts` files next to the code.
+- `pnpm test:unit` runs vitest on the `*.test.ts` files next to the code and on the browser modules'
+  `packages/web/src/**/*.test.mjs` (in jsdom: everything that needs no rendering).
 - `pnpm test:api` runs the tests in `test/`, which check the HTTP API from the outside: each test file starts the
   server as a separate process with a temporary storage folder and a fake Claude CLI (`test/fixtures/fake-claude.mjs`),
   so they never touch your projects or call Claude. `TEST_SERVER_CMD` runs them against a different server command,
   e.g. `TEST_SERVER_CMD="node other/server.js" pnpm test:api`.
+- `pnpm test:browser` opens the editor in headless Chrome and runs the AI chat end to end (prompt → tool calls →
+  proposal → Keep / Undo → save) against a local stand-in for the AI provider (`test/browser/chat-flow.mjs`).
+  `pnpm test` runs it last, only after everything else passed. Without Chrome or Chromium it prints
+  `BROWSER TESTS SKIPPED` and succeeds; `CHROME_BIN` tells it where Chrome is.
 - `pnpm test:api:postgres` runs the same API tests with Postgres storage. Storage tests run on both SQLite and
   Postgres. Postgres in tests is PGlite (Postgres compiled to WebAssembly, in-process), so no database server or
   Docker is needed.
@@ -113,38 +118,54 @@ The commands use the same settings as the server (`.env`, environment variables)
 - **More ▾** menu: download `.bpmn`, export SVG / PNG, auto-layout the diagram.
   Files without diagram layout (pure process XML) get a layout generated automatically when opened.
 
-## Chat with Claude
+## AI assistant (chat)
 
-The **Chat** button opens a panel where you can ask Claude to change the diagram and attach files
-(PDF, images, text, CSV, Markdown, `.bpmn`) for context. Word/Excel files are not readable yet; export them as PDF.
+The **Chat** button opens a panel where you can ask an AI model about the diagram or have it change it. It uses
+the providers of the server's catalog (see [AI providers](#ai-providers)); in the default `personal` mode, add your
+own API key under **Settings → AI providers** first, and the panel points you there until one is ready.
 
-- Under the hood the server runs your local Claude Code CLI (`claude -p`) in a temp folder per conversation
-  (`$TMPDIR/bpmn-chat/<chat-id>/`) holding `diagram.bpmn` (the editor's current state) and `attachments/`.
-  Follow-up messages continue the same Claude session.
-- Claude's modified diagram is applied as an **unsaved** change with an "undo" link; saving records
-  `AI: <your request>` in the history.
-- It uses your Claude account, and each message costs money (shown under each reply, typically $0.05–0.20).
+- **Conversations** are kept per user and diagram and are private. Pick one in the panel's list; **New**,
+  **Rename** and **Delete** manage them.
+- **Model picker** next to Send: the models of each provider that is ready for you. For providers without a fixed
+  list, the server asks the provider (chat models only); if that fails, choose "Other model…" and type a name.
+- **Replies stream in**; **Stop** cancels the answer. Token use (and the cost, when the provider reports it) is shown
+  under each reply.
+- **Attach…** adds up to 3 text files (plain text, CSV, Markdown, `.bpmn`; 2 MB each, 6 MB together), sent along
+  with the message. Images and PDFs are not supported yet.
+- **The assistant edits the diagram in your editor**, through the same commands as manual edits: they can be undone
+  and reach live collaborators as unsaved changes. All its edits of one message form one **proposal**: the changed
+  elements are highlighted (added green, changed orange, moved blue), and the reply and the top banner offer
+  **Keep** or **Undo**. Undo asks first if the diagram was changed after the assistant's edits. Sending the next
+  message or saving keeps an open proposal.
+- **Version note:** the assistant describes its edits for the history (a short title and a few points, in plain
+  language however the request was worded). Saving after AI changes opens the note for you to check or edit,
+  e.g. `AI: Add review step before shipping` with the points below it; the notes of several AI messages before one
+  save are combined, and edits the assistant did not describe are listed from the diagram changes. Your messages
+  themselves stay in your private chat history and are never written into the version history.
+- **Viewers** can chat too, but the assistant only reads the diagram for them.
 
-**Safety:** every signed-in user can use the chat, so the CLI runs locked down: only the Read/Edit/Write/Glob/Grep
-tools, confined to the chat folder (`--restricted`); no shell, web access, MCP servers/connectors
-(`--strict-mcp-config`), user hooks or settings; anything needing a permission prompt is denied.
+**Claude Code CLI (development only).** With `AUTH=dev` and `CHAT_CLAUDE_CODE=on`, the catalog also offers the local
+Claude Code CLI (`claude -p`) as a provider: it works on a copy of the diagram in a temp folder below
+`$TMPDIR/bpmn-chat/` and hands a changed diagram to the editor as a proposal. It bills the Claude account signed in
+on the server machine for every user, so the server refuses to start with it under any other sign-in. The CLI runs
+locked down: only the Read/Edit/Write/Glob/Grep tools, confined to that folder (`--restricted`); no shell, web
+access, MCP servers/connectors (`--strict-mcp-config`), user hooks or settings; anything needing a permission
+prompt is denied. Earlier messages are sent along as text (no CLI session is kept).
 
 | Env var | Default | |
 |---|---|---|
-| `CHAT` | on | `CHAT=off` disables the chat endpoint |
+| `CHAT` | on | `CHAT=off` turns the chat off |
+| `CHAT_CLAUDE_CODE` | off | `on` offers the Claude Code CLI as a provider (needs `AUTH=dev`) |
 | `CLAUDE_BIN` | `claude` | path to the Claude Code CLI |
-| `CLAUDE_MODEL` | CLI default | e.g. `sonnet`, `opus` |
-| `CHAT_TIMEOUT_MS` | 300000 | per-message timeout |
+| `CLAUDE_MODEL` | CLI default | default model of the CLI provider, e.g. `sonnet`, `opus` |
+| `CHAT_TIMEOUT_MS` | 300000 | how long one CLI call may take |
 
-The provider lives in `packages/server/src/chat/claudeCode.ts` and implements the `ChatProvider` interface
-(`run({ cwd, prompt, systemPrompt, sessionId })`, see `packages/server/src/chat/types.ts`), so other LLM
-providers can be added next to it later.
+The provider lives in `packages/server/src/llm/claudeCodeCli.ts`, next to the other `LlmProvider`s.
 
 ## AI providers
 
-The server decides which AI providers users may use; users cannot add providers or URLs of their own. (The chat
-panel above still runs through the Claude Code CLI; the server already offers a chat API on these providers,
-see [Chat API](#chat-api), and the next release moves the panel onto it.) There are two modes:
+The server decides which AI providers users may use; users cannot add providers or URLs of their own. There are
+two modes:
 
 - **`personal`** (default): every user brings their own API key, saved under **Settings → AI providers**. The default
   list offers Anthropic and OpenAI. The server pays for nothing.
@@ -181,7 +202,9 @@ Each entry of `LLM_PROVIDERS` (or `llm.providers` in an `APP_CONFIG` module):
 - `userIdHeader`: also send the user's subject in this header.
 
 `GET /api/llm/providers` lists the providers with whether each is ready for the current user; it never returns keys,
-tokens or provider URLs.
+tokens or provider URLs. `GET /api/llm/providers/:id/models` lists a provider's models: its fixed list, or else the
+chat models the provider reports (embedding, speech, image and moderation models are left out). It uses the user's
+own key for that one request and is refused with access tokens.
 
 **How personal keys are kept.** A key is checked with the provider before it is saved, then encrypted (AES-256-GCM)
 with a key derived from two halves: `APP_SECRET` on the server and a random secret in an `HttpOnly`,
@@ -216,25 +239,35 @@ All routes are below `/api/projects/:id/chat/`:
 | `GET conversations/:cid` | the conversation with its `messages` (content blocks: `text`, `tool_use`, `tool_result`) and latest `turns` |
 | `PATCH conversations/:cid` `{ title?, providerId?, model? }` | rename it or switch the model |
 | `DELETE conversations/:cid` | delete it (a running turn stops) |
-| `POST conversations/:cid/turns` `{ message }` | send a message; the response is an event stream (below) |
+| `POST conversations/:cid/turns` `{ message, attachments? }` | send a message; the response is an event stream (below) |
 | `POST conversations/:cid/tool-results` `{ turnId, toolCallId, content, isError? }` | the browser's result of a tool call |
 | `POST conversations/:cid/turns/:turnId/cancel` | stop a running turn |
 
 The turn's event stream (`text/event-stream`, numbered events) sends `turn { turnId }`, then `text { text }` as the
 reply is written, `tool_request { turnId, id, name, input }` for each tool the browser must run,
 `tool_result { id, name, status }` when a call finished (`done`, `error`, `timeout`, or `refused` when the user may
-not run it), `usage { inputTokens, outputTokens }` per model call, and finally one of `done { stopReason, usage }`,
-`cancelled` or `error { message }`.
+not run it), `usage { inputTokens, outputTokens, costUsd? }` per model call (`costUsd` only from providers that
+report it), and finally one of `done { stopReason, usage }`, `cancelled` or `error { message }`.
+
+`attachments` is a list of up to 3 text files `{ name, text }` (`.txt`, `.csv`, `.md`, `.markdown`, `.bpmn`; 2 MB each,
+6 MB together). Each is added to the message as a text block `<attachment name="…">…</attachment>`.
 
 **Tools.** The browser tools (`packages/server/src/chat/toolSpecs.ts`) read the open diagram (`bpmn_get_summary`,
 `bpmn_get_elements`, `bpmn_get_xml`, `bpmn_lint`, `bpmn_export_svg`) or change it (`bpmn_add_elements`,
-`bpmn_update_elements`, `bpmn_delete_elements`, `bpmn_connect`, `bpmn_replace_xml`, `bpmn_auto_layout`). The server
+`bpmn_update_elements`, `bpmn_delete_elements`, `bpmn_connect`, `bpmn_replace_xml`, `bpmn_auto_layout`), and
+`bpmn_summarize_changes { title, details[] }` records the version note for its edits (offered with the edit tools;
+the system prompt asks for it once per message that changed the diagram). The editor runs them
+(`packages/web/src/chat/`): edits go through bpmn-js `modeling`, `bpmn_replace_xml` is checked with the editor's
+BPMN parser first (no unknown elements, duplicate ids or broken references), `bpmn_lint` uses the editor's bpmnlint
+rules, and `bpmn_auto_layout` (bpmn-auto-layout, diagrams without pools and lanes) moves the existing elements. The
+server
 reads the user's role again before each model call and each tool call: viewers are offered only the read tools, and
 an edit tool is refused even when the model calls it. A role change applies within the running turn. The browser has
 `CHAT_TOOL_TIMEOUT_MS` (30 s) to answer a tool call; otherwise the model is told that the editor did not answer.
 
-**Limits.** One running turn per conversation (`409` otherwise), at most 8 running turns per user (`429`), messages up
-to 64 KB, at most 20 model calls per turn, tool results up to 2 MB. Closing the request (the tab) cancels the turn and
+**Limits.** One running turn per conversation (`409` otherwise), at most 8 running turns per user (`429`), at most
+`CHAT_TURNS_PER_MINUTE` (10) messages per user and minute across all instances (`429` with `code: 'rate-limited'`
+and `Retry-After`), messages up to 64 KB, at most 20 model calls per turn, tool results up to 2 MB. Closing the request (the tab) cancels the turn and
 the provider request. Conversations without activity for `CHAT_IDLE_DAYS` (30) are deleted.
 
 **Keys.** For a provider with personal keys, the key is decrypted for the one turn with the browser's keyring cookie,
@@ -257,8 +290,10 @@ heartbeat; turns of an instance that stopped (no heartbeat for a minute) are mar
 | `CHAT_TOOL_TIMEOUT_MS` | 30000 | how long the browser has to run a tool |
 | `CHAT_IDLE_DAYS` | 30 | conversations without activity are deleted after this many days |
 | `CHAT_SYSTEM_PROMPT_APPEND` | – | text added to the assistant's system prompt |
+| `CHAT_TURNS_PER_MINUTE` | 10 | messages one user may send per minute; `0` turns the limit off |
 
-`CHAT=off` turns off this API too.
+`CHAT=off` turns off this API. The former `POST /api/projects/:id/chat` (Claude Code CLI only) is gone; the CLI is
+now a provider of this API (see [AI assistant](#ai-assistant-chat)).
 
 ## Plugins and upgrading
 
