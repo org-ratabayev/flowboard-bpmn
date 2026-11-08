@@ -29,6 +29,11 @@ describe('parseConfig', () => {
       },
       chat: {
         enabled: true,
+        systemPromptAppend: '',
+        toolTimeoutMs: 30000,
+        maxIterations: 20,
+        maxActiveTurnsPerUser: 8,
+        idleDays: 30,
         workDir: path.join(os.tmpdir(), 'bpmn-chat'),
         claudeCode: { bin: 'claude', model: '', timeoutMs: 300000 }
       }
@@ -103,6 +108,12 @@ describe('configFromEnv', () => {
 
   it('treats any CHAT value other than "off" as on', () => {
     expect(configFromEnv({ CHAT: 'on' }).chat?.enabled).toBe(true);
+  });
+
+  it('reads the chat settings of the assistant', () => {
+    const chat = configFromEnv({ CHAT_SYSTEM_PROMPT_APPEND: 'Use German names.', CHAT_TOOL_TIMEOUT_MS: '5000', CHAT_IDLE_DAYS: '7' }).chat;
+    expect(chat).toMatchObject({ systemPromptAppend: 'Use German names.', toolTimeoutMs: 5000, idleDays: 7 });
+    expect(() => parseConfig({ publicDir: '/p', chat: { toolTimeoutMs: 10 } })).toThrow();
   });
 
   it('rejects non-numeric numbers', () => {

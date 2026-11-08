@@ -33,10 +33,10 @@ describe('access events', () => {
   it('stay in the process with SQLite', async () => {
     const events = createLocalEvents();
     const seen: string[] = [];
-    const stop = events.subscribe((id) => seen.push(id));
-    await events.publish('doc-1');
+    const stop = events.subscribe('access', (id) => seen.push(id));
+    await events.publish('access', 'doc-1');
     stop();
-    await events.publish('doc-2');
+    await events.publish('access', 'doc-2');
     expect(seen).toEqual(['doc-1']);
   });
 
@@ -44,11 +44,11 @@ describe('access events', () => {
     const db = fakeDb();
     const listener = fakeClient();
     const events = createPostgresEvents(db, { connectionString: 'postgres://x', listen: true, createClient: () => listener as unknown as ListenerClient });
-    await vi.waitFor(() => expect(listener.queries).toEqual(['LISTEN flowboard_access']));
+    await vi.waitFor(() => expect(listener.queries).toEqual(['LISTEN flowboard_access', 'LISTEN flowboard_chat']));
     const seen: string[] = [];
-    events.subscribe((id) => seen.push(id));
+    events.subscribe('access', (id) => seen.push(id));
 
-    await events.publish('doc-1');
+    await events.publish('access', 'doc-1');
     expect(seen).toEqual(['doc-1']);
     const [channel, payload] = db.notified[0];
     expect(channel).toBe('flowboard_access');
@@ -68,6 +68,25 @@ describe('access events', () => {
     expect(listener.ended).toBe(true);
   });
 
+  it('keep topics apart, locally and through NOTIFY', async () => {
+    const db = fakeDb();
+    const listener = fakeClient();
+    const events = createPostgresEvents(db, { connectionString: 'postgres://x', listen: true, createClient: () => listener as unknown as ListenerClient });
+    await vi.waitFor(() => expect(listener.queries).toHaveLength(2));
+    const access: string[] = [];
+    const chat: string[] = [];
+    events.subscribe('access', (id) => access.push(id));
+    events.subscribe('chat', (id) => chat.push(id));
+
+    await events.publish('chat', 'conv-1');
+    expect(db.notified[0][0]).toBe('flowboard_chat');
+    listener.emit('notification', { channel: 'flowboard_chat', payload: JSON.stringify({ i: 'other', d: 'conv-2' }) });
+    listener.emit('notification', { channel: 'flowboard_access', payload: JSON.stringify({ i: 'other', d: 'doc-1' }) });
+    expect(chat).toEqual(['conv-1', 'conv-2']);
+    expect(access).toEqual(['doc-1']);
+    await events.close();
+  });
+
   it('reconnect the LISTEN connection after it fails, and stop when closed', async () => {
     vi.useFakeTimers();
     const connections: ReturnType<typeof fakeClient>[] = [];
@@ -76,12 +95,12 @@ describe('access events', () => {
       listen: true,
       createClient: () => { const c = fakeClient(); connections.push(c); return c as unknown as ListenerClient; }
     });
-    await vi.waitFor(() => expect(connections[0].queries).toHaveLength(1));
+    await vi.waitFor(() => expect(connections[0].queries).toHaveLength(2));
     connections[0].emit('error', new Error('connection lost'));
     expect(connections[0].ended).toBe(true);
     await vi.advanceTimersByTimeAsync(1000);
     expect(connections).toHaveLength(2);
-    await vi.waitFor(() => expect(connections[1].queries).toEqual(['LISTEN flowboard_access']));
+    await vi.waitFor(() => expect(connections[1].queries).toEqual(['LISTEN flowboard_access', 'LISTEN flowboard_chat']));
 
     await events.close();
     connections[1].emit('end');
@@ -93,8 +112,8 @@ describe('access events', () => {
     const create = vi.fn();
     const events = createPostgresEvents(fakeDb(), { connectionString: 'postgres://x', listen: false, createClient: create });
     const seen: string[] = [];
-    events.subscribe((id) => seen.push(id));
-    await events.publish('doc-1');
+    events.subscribe('access', (id) => seen.push(id));
+    await events.publish('access', 'doc-1');
     expect(seen).toEqual(['doc-1']);
     expect(create).not.toHaveBeenCalled();
   });

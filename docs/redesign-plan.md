@@ -418,7 +418,8 @@ browser ─POST /api/chat/:conversationId/prompt─▶ server agent loop ─▶ 
   (Postgres NOTIFY) wakes the instance running the turn.
 - Limits: max 8 active turns per user, prompt text ≤ 64 KB, ≤ 3 attachments per message, ≤ 2 MB each, ≤ 6 MB total;
   conversations idle for 30 days are deleted. Supported attachments: images, PDF, text/CSV/Markdown, `.bpmn`.
-- SSE events are numbered so a reconnecting browser can replay what it missed (keep the last N events per session).
+- SSE events are numbered. (6b: a disconnect cancels the turn, so there is no replay; the stored history is the
+  source of truth after a reload.)
 
 ### 7.2 Tools
 
@@ -727,11 +728,33 @@ Split into three PRs:
 - **6a, providers and credentials** (done): `LlmProvider` interface with `anthropic` and `openai-compatible`
   (4.4); provider catalog, modes and credential sources; personal keys stored encrypted per browser; Settings
   section; `APP_SECRET`; CSP on pages (7.6).
-- **6b, agent loop**: conversation history in the database; agent loop with limits; browser tool bridge through
-  the database and event bus (7.1, 7.2); role-filtered tools; a `fake` provider for tests that replays scripted tool
-  calls.
+- **6b, agent loop** (done): conversation history in the database; agent loop with limits; browser tool bridge
+  through the database and event bus (7.1, 7.2); role-filtered tools; tests against a local stand-in that speaks the
+  Anthropic streaming protocol and replays scripted tool calls (instead of a `fake` provider type in production code).
 - **6c, chat UI and tools**: browser tool executors using bpmn-js `modeling`, proposal "Keep / Undo", diff
   highlighting; model picker; usage/cost display; rate limits; `claude-code-cli` as a provider (dev or managed only).
+
+Implementation notes for 6b (done):
+- Routes under `/api/projects/:id/chat/conversations…` (README "Chat API"); the old `POST /api/projects/:id/chat`
+  (Claude Code CLI) is unchanged until 6c. Migration `008_chat`: `chat_conversations` (user, document, provider,
+  model, title), `chat_messages` (ordered neutral content blocks as JSON, usage), `chat_turns` (status, stop reason,
+  error, usage, cancel flag, heartbeat; a partial unique index allows one running turn per conversation) and
+  `chat_tool_calls` (keyed by turn and tool-use id; pending, done, error or timeout).
+- `chat/agentLoop.ts` runs a turn; `chat/conversationStore.ts` stores it; `chat/history.ts` repairs stored history
+  for the provider (merges neighbours, adds placeholder results for tool calls a cancelled turn never answered).
+- The events bus is generalized to topics (`access`, `chat`), one Postgres channel each (`flowboard_access`,
+  `flowboard_chat`); the payload carries only the id. A waiting turn is woken by the bus and also re-reads the
+  database every 2 s, so a lost notification only delays it. Cancel requests go the same way (a flag in the turn).
+- A disconnect cancels the turn (there is no reconnect/replay of a running turn; events still carry numbers).
+- A running turn writes a heartbeat; turns without one for 60 s are failed by any instance (on the next turn start
+  of that user and in a periodic sweep, which also deletes idle conversations).
+- Access tokens: allowed with `server`/`adapter` providers; personal keys refused; no upstream token on token requests.
+- Tool specs live in `packages/server/src/chat/toolSpecs.ts` (there is no `packages/shared` yet).
+- Cross-instance: an API test runs two server processes on one SQLite file (result posted to the other instance,
+  woken by the database check); the NOTIFY path is a unit test on PGlite with a stand-in for the LISTEN
+  connections, because PGlite serves one session. Not yet verified on a real multi-instance Postgres.
+- The 8-turns-per-user limit is checked in a transaction but can be exceeded by one or two under concurrent starts
+  on several instances (no lock across instances).
 
 Acceptance: with the fake provider, an end-to-end test adds a task between two elements through browser tools, the
 change is undoable, and saving records `AI: …`; a viewer's chat cannot call edit tools (server rejects even if the

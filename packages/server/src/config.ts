@@ -113,6 +113,16 @@ const baseSchema = z.object({
   chat: z
     .object({
       enabled: z.boolean().default(true),
+      /** Text added to the assistant's system prompt (chat/prompts/bpmn-assistant.md), e.g. modeling conventions. */
+      systemPromptAppend: z.string().max(20000).default(''),
+      /** How long the assistant waits for the browser to run one of its tools. */
+      toolTimeoutMs: z.number().int().min(100).default(30_000),
+      /** Provider calls per turn (each tool round trip is one more). */
+      maxIterations: z.number().int().min(1).max(100).default(20),
+      /** Turns one user may have running at the same time, across conversations and server instances. */
+      maxActiveTurnsPerUser: z.number().int().min(1).default(8),
+      /** Conversations without activity for this many days are deleted. */
+      idleDays: z.number().int().min(1).default(30),
       /** Each chat gets a working directory below this folder. */
       workDir: absolutePath.prefault(path.join(os.tmpdir(), 'bpmn-chat')),
       claudeCode: z
@@ -229,6 +239,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
     },
     chat: {
       enabled: env.CHAT ? env.CHAT !== 'off' : undefined,
+      systemPromptAppend: env.CHAT_SYSTEM_PROMPT_APPEND || undefined,
+      toolTimeoutMs: number('CHAT_TOOL_TIMEOUT_MS'),
+      idleDays: number('CHAT_IDLE_DAYS'),
       claudeCode: {
         bin: env.CLAUDE_BIN || undefined,
         model: env.CLAUDE_MODEL || undefined,
