@@ -22,6 +22,9 @@ import { me } from './session.mjs';
 import { createReadOnly } from './readOnly.mjs';
 import { openShareDialog } from './share.mjs';
 import { createLive } from './live.mjs';
+import { createChatPanel } from './chat/panel.mjs';
+import { createProposals } from './chat/proposal.mjs';
+import { createChatTools } from './chat/tools.mjs';
 
 const id = decodeURIComponent(location.pathname.split('/')[2]);
 const api = `/api/projects/${encodeURIComponent(id)}`;
@@ -61,8 +64,6 @@ const state = {
   importing: false,
   saving: false,
   versions: [],
-  pendingNote: null,  // history note for the next save, e.g. after applying a chat change
-  edits: 0,           // counts canvas edits, to detect edits made while a chat request runs
   publishPending: false, // a local change is waiting to be shared with other participants
   role: 'owner',        // the user's role on this project: owner, editor or viewer
   warnedViewOnly: false
@@ -70,7 +71,7 @@ const state = {
 
 const ROLE_BADGE = { owner: '', editor: 'Can edit', viewer: 'View only' };
 
-/** Shows what the user may do; viewers cannot save, chat or share changes with others. */
+/** Shows what the user may do; viewers cannot save or share changes with others (they may chat about the diagram). */
 function applyRole(role) {
   state.role = role;
   const viewer = role === 'viewer';
@@ -78,11 +79,10 @@ function applyRole(role) {
   $('roleBadge').hidden = !ROLE_BADGE[role];
   $('roleBadge').className = `role-badge role-${role}`;
   $('save').hidden = viewer;
-  $('chatBtn').hidden = viewer;
   $('name').readOnly = role !== 'owner' && role !== 'editor';
   document.querySelector('[data-action="layout"]').hidden = viewer;
   readOnly.set(viewer);
-  if (viewer) document.getElementById('chat')?.classList.remove('show');
+  chatPanel?.roleChanged();
 }
 
 /** The owner changed our role while the project is open (live event, or noticed on reconnect). */
@@ -165,7 +165,10 @@ function updateStatus() {
   $('save').textContent = state.viewing ? 'Restore this version' : 'Save';
 }
 
-function showBanner(msg, actions) {
+let bannerOwner = null; // the proposal the banner currently shows, if any
+
+function showBanner(msg, actions, owner = null) {
+  bannerOwner = owner;
   $('bannerMsg').innerHTML = msg;
   const box = $('bannerActions');
   box.innerHTML = '';
@@ -179,7 +182,7 @@ function showBanner(msg, actions) {
   $('banner').classList.add('show');
 }
 
-function hideBanner() { $('banner').classList.remove('show'); }
+function hideBanner() { bannerOwner = null; $('banner').classList.remove('show'); }
 
 function hasLayout(xml) {
   return /<([\w-]+:)?BPMNShape[\s>]/.test(xml);
@@ -208,7 +211,6 @@ async function importXml(xml) {
 
 modeler.on('commandStack.changed', () => {
   if (state.importing) return;
-  state.edits++;
   state.dirty = true;
   updateStatus();
   if (state.role === 'viewer' && !state.warnedViewOnly) {
@@ -243,7 +245,8 @@ async function publishNow() {
 }
 
 function isInteracting() {
-  return interaction.dragging || interaction.directEditing || $('properties').contains(document.activeElement);
+  // while the assistant edits, changes from others wait (applying them would clear the undo history)
+  return interaction.dragging || interaction.directEditing || $('properties').contains(document.activeElement) || !!chatPanel?.busy;
 }
 
 // Applies a diagram produced by another participant, keeping our viewport and selection.
@@ -297,7 +300,7 @@ function startLive() {
         const { xml } = await modeler.saveXML({ format: true });
         if (xml !== saved.xml) await applyRemote({ xml: saved.xml, rev: saved.rev, dirty: false });
         state.dirty = false;
-        state.pendingNote = null;
+        proposals.reset();
       }
       updateStatus();
       toast(`Saved by ${saved.author || 'someone'}`);
@@ -326,7 +329,7 @@ async function loadLatest({ fit = true } = {}) {
   state.baseVersion = p.version;
   state.viewing = null;
   state.dirty = generated || p.dirty;
-  state.pendingNote = null;
+  proposals.reset();
   if (live) {
     live.rev = p.rev;
     live.setViewing(null);
@@ -337,14 +340,24 @@ async function loadLatest({ fit = true } = {}) {
   if ($('history').classList.contains('show')) renderHistory();
 }
 
-async function save({ force = false } = {}) {
+/** Save button and Ctrl/Cmd+S: after AI changes, first shows the version note to confirm or edit. */
+function requestSave() {
+  if (state.saving || state.role === 'viewer' || $('saveDialog').open) return;
+  const aiNote = state.viewing ? '' : proposals.note();
+  if (!aiNote) return save();
+  $('saveNote').value = aiNote;
+  $('saveDialog').showModal();
+  $('saveNote').focus();
+}
+
+async function save({ force = false, note } = {}) {
   if (state.saving || state.role === 'viewer') return;
   state.saving = true;
   $('save').disabled = true;
   setStatus('Saving…');
   try {
     const { xml } = await modeler.saveXML({ format: true });
-    const note = state.viewing ? `Restored version from ${fmt(versionDate(state.viewing))}` : state.pendingNote;
+    note ??= state.viewing ? `Restored version from ${fmt(versionDate(state.viewing))}` : null;
     // the save itself shares this diagram with everyone, so a pending share is no longer needed
     clearTimeout(publishTimer);
     state.publishPending = false;
@@ -360,7 +373,7 @@ async function save({ force = false } = {}) {
         `Someone saved a newer version${who} at ${esc(fmt(body.latest?.at))} while you were editing. Both versions are kept in history either way.`,
         [
           ['Load their version (discard mine)', () => loadLatest({ fit: false })],
-          ['Save mine on top', () => save({ force: true }), true]
+          ['Save mine on top', () => save({ force: true, note }), true]
         ]
       );
       updateStatus();
@@ -374,7 +387,7 @@ async function save({ force = false } = {}) {
     }
     state.viewing = null;
     state.dirty = false;
-    state.pendingNote = null;
+    proposals.saved();
     hideBanner();
     updateStatus();
     toast('Saved');
@@ -429,6 +442,7 @@ async function viewVersion(version, { confirmDiscard = true } = {}) {
   try { xml = await fetchVersionXml(version); } catch (e) { toast(e.message); return false; }
   clearTimeout(publishTimer);
   state.publishPending = false;
+  proposals.reset();
   await importXml(xml);
   state.viewing = version;
   state.dirty = false;
@@ -558,140 +572,51 @@ async function autoLayout() {
 
 // ---------- chat ----------
 
-const chat = { id: null, busy: false, files: [] };
-const MAX_ATTACHMENT_BYTES = 40 * 1024 * 1024;
-
-function addChatMessage(role, text) {
-  const li = document.createElement('li');
-  li.className = `chat-msg ${role}`;
-  const body = document.createElement('div');
-  body.className = 'chat-text';
-  body.textContent = text;
-  li.appendChild(body);
-  $('chatLog').appendChild(li);
-  li.scrollIntoView({ block: 'end' });
-  return li;
+/** Replaces the whole diagram for the assistant (bpmn_replace_xml), keeping the viewport. */
+async function replaceDiagram(xml) {
+  const viewbox = modeler.get('canvas').viewbox();
+  await proposals.replacing(() => importXml(xml));
+  modeler.get('canvas').viewbox(viewbox);
+  state.dirty = true;
+  updateStatus();
+  schedulePublish();
 }
 
-function addChatMeta(li, text) {
-  const meta = document.createElement('div');
-  meta.className = 'chat-meta';
-  meta.textContent = text;
-  li.appendChild(meta);
-  return meta;
-}
+const proposals = createProposals({
+  modeler,
+  confirm: (message) => confirm(message),
+  restore: replaceDiagram
+});
 
-function resetChat() {
-  chat.id = null;
-  $('chatLog').innerHTML = '';
-  addChatMessage('hint', 'Ask Claude to change the diagram, e.g. “Add a manager approval step before Review order”. ' +
-    'Attach PDFs, images or text files for context. Changes appear as unsaved edits that you can undo or save.');
-}
+const chatTools = createChatTools({
+  modeler,
+  lintConfig,
+  isReadOnly: () => readOnly.active,
+  beforeEdit: (name, turn) => proposals.begin(turn),
+  onSummary: (summary, turn) => proposals.setSummary(turn, summary),
+  replaceDiagram
+});
 
-function renderChatFiles() {
-  const box = $('chatFiles');
-  box.innerHTML = '';
-  chat.files.forEach((file, i) => {
-    const chip = document.createElement('span');
-    chip.className = 'chat-file';
-    chip.textContent = file.name;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = '×';
-    remove.title = 'Remove';
-    remove.onclick = () => { chat.files.splice(i, 1); renderChatFiles(); };
-    chip.appendChild(remove);
-    box.appendChild(chip);
-  });
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
-async function sendChat() {
-  const message = $('chatInput').value.trim();
-  if (!message || chat.busy) return;
-  const total = chat.files.reduce((sum, f) => sum + f.size, 0);
-  if (total > MAX_ATTACHMENT_BYTES) return toast('Attachments are too large (40 MB max in total)');
-
-  const files = chat.files.splice(0);
-  renderChatFiles();
-  $('chatInput').value = '';
-  const userMsg = addChatMessage('user', message);
-  if (files.length) addChatMeta(userMsg, `Attached: ${files.map((f) => f.name).join(', ')}`);
-  const pending = addChatMessage('assistant pending', 'Claude is working on it… this can take a minute.');
-
-  chat.busy = true;
-  $('chatSend').disabled = true;
-  const { xml: sentXml } = await modeler.saveXML({ format: true });
-  const editsAtSend = state.edits;
-  const revAtSend = live?.rev;
-  try {
-    const attachments = await Promise.all(files.map(async (f) => ({ name: f.name, data: await fileToBase64(f) })));
-    const res = await fetch(`${api}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId: chat.id, message, xml: sentXml, attachments })
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-    chat.id = body.chatId;
-    pending.remove();
-    const reply = addChatMessage('assistant', body.reply || '(no reply)');
-    const cost = body.costUsd != null ? ` · $${body.costUsd.toFixed(2)}` : '';
-
-    if (!body.xml) {
-      addChatMeta(reply, `Diagram unchanged${cost}`);
-      return;
-    }
-    const changedMeanwhile = state.edits !== editsAtSend || (live && live.rev !== revAtSend);
-    if (changedMeanwhile &&
-        !confirm('The diagram was edited (by you or others) while Claude was working. Apply Claude\'s version anyway? Edits made since sending will be replaced.')) {
-      addChatMeta(reply, `Change not applied${cost}`);
-      return;
-    }
-    const viewbox = modeler.get('canvas').viewbox();
-    try {
-      await importXml(body.xml);
-    } catch (e) {
-      await importXml(sentXml);
-      addChatMeta(reply, `Claude's diagram could not be loaded (${e.message}), nothing was changed${cost}`);
-      return;
-    }
-    modeler.get('canvas').viewbox(viewbox);
-    state.dirty = true;
-    state.pendingNote = `AI: ${message.length > 100 ? message.slice(0, 100) + '…' : message}`;
-    updateStatus();
-    schedulePublish();
-    const meta = addChatMeta(reply, `Applied to the diagram, not saved yet${cost} · `);
-    const undo = document.createElement('a');
-    undo.href = '#';
-    undo.textContent = 'undo';
-    undo.onclick = async (e) => {
-      e.preventDefault();
-      await importXml(sentXml);
-      modeler.get('canvas').viewbox(viewbox);
-      state.pendingNote = null;
-      state.dirty = true;
-      updateStatus();
-      schedulePublish();
-      meta.textContent = `Change undone${cost}`;
-    };
-    meta.appendChild(undo);
-  } catch (e) {
-    pending.remove();
-    addChatMessage('error', `Error: ${e.message}`);
-  } finally {
-    chat.busy = false;
-    $('chatSend').disabled = false;
+proposals.onChange((proposal) => {
+  if (proposal.status === 'ready') {
+    showBanner(`The assistant changed the diagram (highlighted): <b>${esc(proposal.summary?.title || '')}</b>. Keep the changes or undo them; nothing is saved yet.`, [
+      ['Undo', () => proposals.undo(proposal)],
+      ['Keep', () => proposals.keep(proposal), true]
+    ], proposal);
+  } else if (bannerOwner === proposal) {
+    hideBanner();
   }
-}
+});
+
+const chatPanel = createChatPanel({
+  api,
+  $,
+  tools: chatTools,
+  proposals,
+  role: () => state.role,
+  toast,
+  onTurnEnd: () => setTimeout(applyQueuedRemote, 0)
+});
 
 // ---------- wiring ----------
 
@@ -705,7 +630,13 @@ function togglePanel(panelId, prefKey, force) {
 
 togglePanel('properties', null, prefs.get('properties', true));
 
-$('save').onclick = () => save();
+$('save').onclick = () => requestSave();
+$('saveForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  $('saveDialog').close();
+  save({ note: $('saveNote').value.trim() || null });
+});
+$('saveCancel').onclick = () => $('saveDialog').close();
 $('shareBtn').onclick = async () => {
   const user = await me;
   openShareDialog({
@@ -726,20 +657,13 @@ $('copyLink').onclick = async () => {
 $('historyBtn').onclick = () => { if (togglePanel('history')) renderHistory(); };
 $('closeHistory').onclick = () => togglePanel('history', null, false);
 $('propertiesBtn').onclick = () => togglePanel('properties', 'properties');
-$('chatBtn').onclick = () => { if (togglePanel('chat')) $('chatInput').focus(); };
-$('closeChat').onclick = () => togglePanel('chat', null, false);
-$('newChat').onclick = () => { if (!chat.busy) resetChat(); };
-$('chatForm').onsubmit = (e) => { e.preventDefault(); sendChat(); };
-$('chatInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
-});
-$('chatAttach').onclick = () => $('chatFileInput').click();
-$('chatFileInput').onchange = () => {
-  chat.files.push(...$('chatFileInput').files);
-  $('chatFileInput').value = '';
-  renderChatFiles();
+$('chatBtn').onclick = async () => {
+  if (togglePanel('chat')) {
+    await chatPanel.open();
+    $('chatInput').focus();
+  }
 };
-resetChat();
+$('closeChat').onclick = () => togglePanel('chat', null, false);
 
 const menu = $('moreMenu');
 $('moreBtn').onclick = (e) => { e.stopPropagation(); menu.classList.toggle('show'); };
@@ -763,7 +687,7 @@ $('name').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.b
 window.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
     e.preventDefault();
-    save();
+    requestSave();
   }
 });
 window.addEventListener('beforeunload', (e) => {
@@ -773,5 +697,8 @@ window.addEventListener('beforeunload', (e) => {
     e.returnValue = '';
   }
 });
+
+$('chatBtn').hidden = true;
+chatPanel.available().then((ok) => { $('chatBtn').hidden = !ok; });
 
 loadLatest().then(startLive);

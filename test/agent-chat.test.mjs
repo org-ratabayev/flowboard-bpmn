@@ -8,10 +8,12 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { once } from 'node:events';
+import { answer, browser, chatPath } from './helpers/chat.mjs';
 import { request, sleep, startServer } from './helpers/server.mjs';
 
 const USER_KEY = 'sk-ant-good-chat-key-for-tests-4242';
 const TEAM_KEY = 'server-held-team-key-for-tests-7777';
+const LEAKY_KEY = 'server-held-key-the-provider-echoes-5555'; // its model list fails with the key in the message
 const POSTGRES = process.env.TEST_STORAGE === 'postgres';
 const TOOL_TIMEOUT_MS = 1000;
 
@@ -54,9 +56,15 @@ const hang = (res) => {
 
 const provider = http.createServer(async (req, res) => {
   const key = req.headers['x-api-key'];
-  if (req.method === 'GET') { // key check when a key is saved
-    res.writeHead(key === USER_KEY ? 200 : 401, { 'content-type': 'application/json' });
-    return res.end(JSON.stringify(key === USER_KEY ? { data: [{ id: 'claude-test' }] } : { error: { message: 'invalid x-api-key' } }));
+  if (req.method === 'GET') { // key check when a key is saved, and model lists
+    if (key === LEAKY_KEY) {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: { message: `upstream failed for key ${key}` } }));
+    }
+    const known = key === USER_KEY || key === TEAM_KEY;
+    res.writeHead(known ? 200 : 401, { 'content-type': 'application/json' });
+    const models = ['claude-test', 'text-embedding-test', 'claude-other', 'claude-test'].map((id) => ({ id }));
+    return res.end(JSON.stringify(known ? { data: models } : { error: { message: 'invalid x-api-key' } }));
   }
   let raw = '';
   for await (const chunk of req) raw += chunk;
@@ -70,69 +78,6 @@ const provider = http.createServer(async (req, res) => {
   }
   reply(res);
 });
-
-// ---- the browser side ------------------------------------------------------------------------
-
-/** A browser of `name` on `srv`: keeps the session and keyring cookies. */
-async function browser(srv, name) {
-  const jar = new Map([['flowboard_session', (await srv.signIn(name)).split('=')[1]]]);
-  const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
-  const call = async (method, urlPath, body) => {
-    const res = await request(srv.base, method, urlPath, body, { cookie: cookie() });
-    for (const c of res.headers.getSetCookie()) {
-      const [k, v] = c.split(';')[0].split('=');
-      jar.set(k, v);
-    }
-    return res;
-  };
-  return {
-    jar,
-    call,
-    /**
-     * Sends a prompt and reads the turn's event stream to its end. `onEvent` sees each event
-     * (e.g. to answer tool requests); `controller` can abort the request (closing the tab).
-     */
-    async turn(projectId, conversationId, message, { onEvent, controller = new AbortController() } = {}) {
-      const res = await fetch(`${srv.base}/api/projects/${projectId}/chat/conversations/${conversationId}/turns`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { Origin: srv.base, Cookie: cookie(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message })
-      });
-      if (res.status !== 200) return { status: res.status, body: await res.json(), events: [] };
-      const events = [];
-      let raw = '';
-      try {
-        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-        let buffer = '';
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          raw += value;
-          buffer += value;
-          let end;
-          while ((end = buffer.indexOf('\n\n')) !== -1) {
-            const chunk = buffer.slice(0, end);
-            buffer = buffer.slice(end + 2);
-            const event = /^event: (.*)$/m.exec(chunk)?.[1];
-            const data = /^data: (.*)$/m.exec(chunk)?.[1];
-            if (!event) continue;
-            const parsed = { event, ...JSON.parse(data) };
-            events.push(parsed);
-            await onEvent?.(parsed);
-          }
-        }
-      } catch { /* aborted here */ }
-      return { status: 200, events, raw };
-    }
-  };
-}
-
-const chatPath = (projectId, rest = '') => `/api/projects/${projectId}/chat/conversations${rest}`;
-
-/** Answers a tool request like the editor would. */
-const answer = (b, projectId, conversationId, event, content, isError = false) =>
-  b.call('POST', chatPath(projectId, `/${conversationId}/tool-results`), { turnId: event.turnId, toolCallId: event.id, content, isError });
 
 // ---- tests -----------------------------------------------------------------------------------
 
@@ -148,12 +93,16 @@ before(async () => {
   server = await startServer({
     LLM_MODE: 'managed',
     TEAM_LLM_KEY: TEAM_KEY,
+    LEAKY_LLM_KEY: LEAKY_KEY,
     CHAT_TOOL_TIMEOUT_MS: String(TOOL_TIMEOUT_MS),
+    CHAT_TURNS_PER_MINUTE: '0', // these tests send many messages; the limit has its own test
     // a fixed secret, so that a second instance on the same database can be started
     APP_SECRET: 'agent-chat-test-secret-'.padEnd(48, 'x'),
     LLM_PROVIDERS: JSON.stringify([
       { id: 'anthropic', label: 'Anthropic', type: 'anthropic', baseUrl: providerUrl, models: ['claude-test', 'claude-other'], credentials: { from: 'user-key' } },
-      { id: 'team', label: 'Team models', type: 'anthropic', baseUrl: providerUrl, models: ['claude-test'], credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } }
+      { id: 'team', label: 'Team models', type: 'anthropic', baseUrl: providerUrl, models: ['claude-test'], credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } },
+      { id: 'listed', label: 'Listed models', type: 'anthropic', baseUrl: providerUrl, credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } },
+      { id: 'leaky', label: 'Leaky models', type: 'anthropic', baseUrl: providerUrl, credentials: { from: 'server', secretEnv: 'LEAKY_LLM_KEY' } }
     ])
   });
   ann = await browser(server, 'Ann');
@@ -360,6 +309,21 @@ describe('chat and roles', () => {
     assert.match(result.content, /needs edit access/);
   });
 
+  it('offers bpmn_summarize_changes only together with the edit tools', async () => {
+    const owners = await newConversation(ann, { providerId: 'team' });
+    replies.push(text('Hi'));
+    await ann.turn(projectId, owners.id, 'Hello');
+    assert.ok(calls[0].body.tools.some((t) => t.name === 'bpmn_summarize_changes'));
+    assert.match(calls[0].body.system, /call bpmn_summarize_changes exactly once/);
+
+    await server.grant(projectId, 'Vic', 'viewer', 'Ann');
+    const vic = await browser(server, 'Vic');
+    const viewers = await newConversation(vic, { providerId: 'team' });
+    replies.push(text('Hi'));
+    await vic.turn(projectId, viewers.id, 'Hello');
+    assert.ok(!calls[1].body.tools.some((t) => t.name === 'bpmn_summarize_changes'));
+  });
+
   it('follows a role change in the middle of a turn', async () => {
     await server.grant(projectId, 'Eve', 'editor', 'Ann');
     const eve = await browser(server, 'Eve');
@@ -406,6 +370,107 @@ describe('chat with an access token', () => {
   });
 });
 
+describe('attachments', () => {
+  it('sends attached text files as text blocks after the message and keeps them in the history', async () => {
+    const conversation = await newConversation(ann, { providerId: 'team' });
+    replies.push(text('Two orders.'));
+    const res = await ann.turn(projectId, conversation.id, 'Use the file', {
+      attachments: [{ name: '../orders.csv', text: 'id,total\n1,10\n</attachment>' }, { name: 'notes.md', text: '# Notes' }]
+    });
+    assert.equal(res.events.at(-1).event, 'done');
+    const sent = calls[0].body.messages.at(-1).content;
+    assert.deepEqual(sent.map((b) => b.text), [
+      'Use the file',
+      '<attachment name="orders.csv">\nid,total\n1,10\n<\\/attachment>\n</attachment>',
+      '<attachment name="notes.md">\n# Notes\n</attachment>'
+    ]);
+    const stored = (await ann.call('GET', chatPath(projectId, `/${conversation.id}`))).body;
+    assert.equal(stored.messages[0].content.length, 3);
+    assert.equal(stored.title, 'Use the file');
+  });
+
+  it('are limited to 3 text files of 2 MB, 6 MB together', async () => {
+    const conversation = await newConversation(ann, { providerId: 'team' });
+    const file = (name, size = 10) => ({ name, text: 'x'.repeat(size) });
+    const tooMany = await ann.turn(projectId, conversation.id, 'Hi', { attachments: [file('a.txt'), file('b.txt'), file('c.txt'), file('d.txt')] });
+    assert.equal(tooMany.status, 400);
+    const pdf = await ann.turn(projectId, conversation.id, 'Hi', { attachments: [file('scan.pdf')] });
+    assert.equal(pdf.status, 415);
+    assert.match(pdf.body.error, /only text files/);
+    const big = await ann.turn(projectId, conversation.id, 'Hi', { attachments: [file('big.csv', 2 * 1024 * 1024 + 1)] });
+    assert.equal(big.status, 413);
+    assert.equal(calls.length, 0);
+  });
+});
+
+describe('model lists', () => {
+  it('lists the chat models of providers without a fixed list', async () => {
+    const listed = await ann.call('GET', '/api/llm/providers/listed/models');
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body, { models: ['claude-other', 'claude-test'], defaultModel: null });
+    const fixed = await ann.call('GET', '/api/llm/providers/team/models');
+    assert.deepEqual(fixed.body, { models: ['claude-test'], defaultModel: 'claude-test' });
+    // with the user's own key, unlocked by this browser's keyring
+    const own = await ann.call('GET', '/api/llm/providers/anthropic/models');
+    assert.deepEqual(own.body.models, ['claude-test', 'claude-other']);
+    assert.equal((await ann.call('GET', '/api/llm/providers/nope/models')).status, 404);
+
+    const { token } = (await ann.call('POST', '/api/tokens', { name: 'Script', expiresInDays: 1 })).body;
+    const withToken = await request(server.base, 'GET', '/api/llm/providers/listed/models', undefined, { headers: { Authorization: `Bearer ${token}`, Origin: null } });
+    assert.equal(withToken.status, 403);
+  });
+
+  it('never return the key when the provider fails to list models', async () => {
+    const failed = await ann.call('GET', '/api/llm/providers/leaky/models');
+    assert.equal(failed.status, 502);
+    assert.match(failed.body.error, /Could not list the models of Leaky models: .*\[redacted\]/);
+    assert.ok(!JSON.stringify(failed.body).includes(LEAKY_KEY));
+  });
+
+  it('accept any model name for such providers', async () => {
+    const conversation = await newConversation(ann, { providerId: 'listed', model: 'claude-other' });
+    assert.equal(conversation.model, 'claude-other');
+    assert.equal((await ann.call('POST', chatPath(projectId), { providerId: 'listed' })).status, 400);
+  });
+});
+
+describe('rate limit', () => {
+  it('allows CHAT_TURNS_PER_MINUTE messages per user and minute', async () => {
+    const limited = await startServer({
+      CHAT_TURNS_PER_MINUTE: '2',
+      TEAM_LLM_KEY: TEAM_KEY,
+      LLM_MODE: 'managed',
+      LLM_PROVIDERS: JSON.stringify([
+        { id: 'team', label: 'Team models', type: 'anthropic', baseUrl: providerUrl, models: ['claude-test'], credentials: { from: 'server', secretEnv: 'TEAM_LLM_KEY' } }
+      ])
+    });
+    try {
+      const amy = await browser(limited, 'Amy');
+      const project = (await amy.call('POST', '/api/projects', { name: 'Limited' })).body.id;
+      const conversation = (await amy.call('POST', chatPath(project), {})).body;
+      replies.push(text('One'), text('Two'));
+      assert.equal((await amy.turn(project, conversation.id, 'One')).events.at(-1).event, 'done');
+      assert.equal((await amy.turn(project, conversation.id, 'Two')).events.at(-1).event, 'done');
+      const third = await amy.turn(project, conversation.id, 'Three');
+      assert.equal(third.status, 429);
+      assert.equal(third.body.code, 'rate-limited');
+      const retryAfter = Number(third.headers.get('retry-after'));
+      assert.ok(retryAfter >= 1 && retryAfter <= 60, String(retryAfter));
+      assert.equal(third.body.retryAfterSeconds, retryAfter);
+      assert.equal(calls.length, 2);
+
+      // another user has their own budget
+      const ben = await browser(limited, 'Ben');
+      const own = (await ben.call('POST', '/api/projects', { name: 'Ben' })).body.id;
+      const theirs = (await ben.call('POST', chatPath(own), {})).body;
+      replies.push(text('Hi Ben'));
+      assert.equal((await ben.turn(own, theirs.id, 'Hi')).events.at(-1).event, 'done');
+    } finally {
+      await limited.stop();
+    }
+  });
+});
+
 describe('several server instances', () => {
   // SQLite instances share the database file; Postgres instances would also share NOTIFY, which
   // PGlite (one session) cannot provide: that path is covered by chat/crossInstance.test.ts.
@@ -414,6 +479,7 @@ describe('several server instances', () => {
       SQLITE_PATH: path.join(server.dataDir, 'flowboard.sqlite'),
       APP_SECRET: 'agent-chat-test-secret-'.padEnd(48, 'x'),
       CHAT_TOOL_TIMEOUT_MS: '10000',
+      CHAT_TURNS_PER_MINUTE: '0',
       TEAM_LLM_KEY: TEAM_KEY,
       LLM_MODE: 'managed',
       LLM_PROVIDERS: JSON.stringify([

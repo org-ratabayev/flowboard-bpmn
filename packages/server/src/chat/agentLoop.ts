@@ -31,10 +31,13 @@ export type TurnEvent =
   | { type: 'text'; text: string }
   | { type: 'tool_request'; turnId: string; id: string; name: string; input: unknown }
   | { type: 'tool_result'; id: string; name: string; status: ToolCall['status'] | 'refused'; error?: string }
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
-  | { type: 'done'; stopReason: StopReason | 'max_iterations'; usage: { inputTokens: number; outputTokens: number } }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; costUsd?: number }
+  | { type: 'done'; stopReason: StopReason | 'max_iterations'; usage: Usage }
   | { type: 'cancelled' }
   | { type: 'error'; message: string };
+
+/** Tokens of a turn, and its cost when the provider reports one. */
+export interface Usage { inputTokens: number; outputTokens: number; costUsd?: number }
 
 export interface TurnOptions {
   store: ConversationStore;
@@ -81,7 +84,7 @@ export async function runTurn(options: TurnOptions): Promise<'done' | 'failed' |
     }
   })();
 
-  const total = { inputTokens: 0, outputTokens: 0 };
+  const total: Usage = { inputTokens: 0, outputTokens: 0 };
   let partial: ContentBlock[] = [];
   try {
     for (let iteration = 0; iteration < limits.maxIterations; iteration++) {
@@ -91,7 +94,7 @@ export async function runTurn(options: TurnOptions): Promise<'done' | 'failed' |
       const history = toProviderHistory(await store.messages(conversationId));
       partial = [];
       const calls: Array<{ id: string; name: string; input: unknown }> = [];
-      let usage = { inputTokens: 0, outputTokens: 0 };
+      let usage: Usage = { inputTokens: 0, outputTokens: 0 };
       let stopReason: StopReason = 'other';
       for await (const event of provider.stream({
         model: options.model,
@@ -110,7 +113,7 @@ export async function runTurn(options: TurnOptions): Promise<'done' | 'failed' |
           calls.push(event);
           partial.push({ type: 'tool_use', id: event.id, name: event.name, input: event.input });
         } else if (event.type === 'usage') {
-          usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+          usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens, ...(event.costUsd !== undefined ? { costUsd: event.costUsd } : {}) };
         } else if (event.type === 'done') {
           stopReason = event.stopReason;
         }
@@ -118,9 +121,10 @@ export async function runTurn(options: TurnOptions): Promise<'done' | 'failed' |
       if (controller.signal.aborted) throw new DOMException('aborted', 'AbortError');
       const content = partial;
       partial = [];
-      await store.appendMessage(conversationId, turnId, 'assistant', content, usage);
+      await store.appendMessage(conversationId, turnId, 'assistant', content, { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
       total.inputTokens += usage.inputTokens;
       total.outputTokens += usage.outputTokens;
+      if (usage.costUsd !== undefined) total.costUsd = (total.costUsd ?? 0) + usage.costUsd;
       emit({ type: 'usage', ...usage });
 
       if (!calls.length) {

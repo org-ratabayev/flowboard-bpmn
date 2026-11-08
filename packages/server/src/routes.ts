@@ -1,22 +1,23 @@
+// /api…  The JSON API below the authentication of server.ts: the signed-in user, access tokens,
+// users, share links, and the project routes (role check first, then access, live, history,
+// download and the chat, which is dispatched to chat/agentRoutes.ts).
+
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { cleanDisplayName, type Auth, type Identity } from './auth/index.ts';
 import type { TokenStore } from './auth/tokenStore.ts';
 import { looksLikeBpmn } from './bpmn.ts';
 import { handleAgentChat, type AgentChat } from './chat/agentRoutes.ts';
-import type { createChatService } from './chat/chatService.ts';
-import { HttpError, readJson, send } from './http.ts';
+import { readJson, send } from './http.ts';
 import type { EventBus } from './events.ts';
 import type { LiveHub } from './live.ts';
 import { atLeast, isGrantRole, isVisibility, normalizeEmail, type AccessStore, type Role } from './storage/accessStore.ts';
 import { isProjectId, isVersionName, type DocumentStore } from './storage/index.ts';
 
 const MAX_BODY = 20 * 1024 * 1024;
-const MAX_CHAT_BODY = 60 * 1024 * 1024; // attachments arrive base64-encoded
 
 export interface ApiContext {
   store: DocumentStore;
   live: LiveHub;
-  chat: ReturnType<typeof createChatService> | null;
   /** Chat with the configured AI providers (agent loop); null when chat is off or no provider is configured. */
   agentChat: AgentChat | null;
   /** The user's token from the sign-in, for AI providers using the user's identity (never with access tokens). */
@@ -277,20 +278,9 @@ export async function handleApi(
 
   if (sub === 'access') return handleAccess(ctx, req, res, id, parts.slice(4), role, allowed);
 
-  if (sub === 'chat' && parts.length > 4) {
+  if (sub === 'chat') {
     if (!ctx.agentChat) return send(res, 404, { error: 'Chat is disabled on this server' });
     return handleAgentChat(ctx.agentChat, { identity, viaToken: ctx.viaToken, upstreamToken: ctx.upstreamToken }, req, res, id, parts.slice(4));
-  }
-
-  if (sub === 'chat' && req.method === 'POST') {
-    if (!allowed('editor')) return;
-    if (!ctx.chat) return send(res, 403, { error: 'Chat is disabled on this server' });
-    const body = await readJson(req, MAX_CHAT_BODY);
-    try {
-      return send(res, 200, await ctx.chat.chat(id, body));
-    } catch (err) {
-      return send(res, err instanceof HttpError ? err.status : 502, { error: (err as Error).message });
-    }
   }
 
   if (sub === 'history' && req.method === 'GET') {

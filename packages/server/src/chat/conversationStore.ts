@@ -2,7 +2,7 @@
 // conversation and any instance can accept a tool result from the browser.
 //
 //   conversation  one user, one document, one provider and model; deleted after idling for a while
-//   message       provider-neutral content blocks (text, tool_use, tool_result) in order
+//   message       provider-independent content blocks (text, tool_use, tool_result) in order
 //   turn          one prompt and the model's work on it: running → done | failed | cancelled
 //   tool call     a browser tool call of a turn, waiting for (or holding) the browser's answer
 
@@ -54,7 +54,11 @@ export interface ToolCall {
   result: string | null;
 }
 
-export type StartTurnResult = { turn: Turn } | { busy: 'conversation' | 'user' };
+export type StartTurnResult =
+  | { turn: Turn }
+  | { busy: 'conversation' | 'user' }
+  /** Too many turns started in the last minute; `retryAfterSeconds` until the next one may start. */
+  | { busy: 'rate'; retryAfterSeconds: number };
 
 export const STALE_TURN_ERROR = 'The server running this turn stopped before it finished';
 
@@ -203,7 +207,8 @@ export function createConversationStore(db: Db) {
      * Starts a turn unless the conversation already has one running, or the user has `maxActive`
      * running turns. Turns whose server stopped sending heartbeats before `staleBefore` are failed first.
      */
-    async startTurn(conversationId: string, userId: string, options: { maxActive: number; staleBefore: string }): Promise<StartTurnResult> {
+    /** `perMinute` limits the turns one user starts per minute (0 or unset: no limit). */
+    async startTurn(conversationId: string, userId: string, options: { maxActive: number; staleBefore: string; perMinute?: number }): Promise<StartTurnResult> {
       try {
         return await db.transaction(async (q): Promise<StartTurnResult> => {
           await failStale(q, options.staleBefore, userId);
@@ -211,6 +216,17 @@ export function createConversationStore(db: Db) {
           if (running) return { busy: 'conversation' };
           const active = await q.get<{ n: unknown }>(`SELECT COUNT(*) AS n FROM chat_turns WHERE user_id = $1 AND status = 'running'`, [userId]);
           if (Number(active?.n ?? 0) >= options.maxActive) return { busy: 'user' };
+          if (options.perMinute) {
+            const windowStart = new Date(Date.now() - 60_000).toISOString();
+            const recent = await q.all<{ started_at: unknown }>(
+              'SELECT started_at FROM chat_turns WHERE user_id = $1 AND started_at > $2 ORDER BY started_at',
+              [userId, windowStart]
+            );
+            if (recent.length >= options.perMinute) {
+              const oldest = new Date(toIso(recent[recent.length - options.perMinute].started_at)!).getTime();
+              return { busy: 'rate', retryAfterSeconds: Math.max(1, Math.ceil((oldest + 60_000 - Date.now()) / 1000)) };
+            }
+          }
           const at = now();
           const id = crypto.randomUUID();
           await q.run(

@@ -1,4 +1,4 @@
-// A provider-neutral way to talk to chat models with tools. Messages use content blocks
+// A provider-independent way to talk to chat models with tools. Messages use content blocks
 // (text, tool calls, tool results); each provider converts them to its own API.
 
 export type ContentBlock =
@@ -23,7 +23,8 @@ export type StopReason = 'end' | 'tool_use' | 'max_tokens' | 'other';
 export type LlmEvent =
   | { type: 'text'; text: string }
   | { type: 'tool_call'; id: string; name: string; input: unknown }
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
+  /** `costUsd` only from providers that report what a call cost. */
+  | { type: 'usage'; inputTokens: number; outputTokens: number; costUsd?: number }
   | { type: 'done'; stopReason: StopReason };
 
 /**

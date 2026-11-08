@@ -148,8 +148,28 @@ export const BROWSER_TOOLS: BrowserTool[] = [
   {
     name: 'bpmn_auto_layout',
     minRole: 'editor',
-    description: 'Lays out the whole diagram automatically, left to right.',
+    description: 'Lays out the whole diagram automatically, left to right (diagrams without pools and lanes).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false }
+  },
+  {
+    name: 'bpmn_summarize_changes',
+    minRole: 'editor',
+    description: 'Records what you changed in this turn, for the version history. Call it once, after your last edit. '
+      + 'Write correct, plain English regardless of how the request was phrased; describe the diagram, not the conversation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', maxLength: 80, description: 'Short imperative summary, e.g. "Add review step before shipping"' },
+        details: {
+          type: 'array',
+          maxItems: 8,
+          items: { type: 'string', maxLength: 160 },
+          description: 'A few concise points, e.g. "Add task Review order between Pack order and Ship order"'
+        }
+      },
+      required: ['title', 'details'],
+      additionalProperties: false
+    }
   }
 ];
 

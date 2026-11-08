@@ -1,8 +1,12 @@
+// The server configuration: one zod schema with defaults and cross-field checks, the mapping of
+// environment variables onto it, and loading/merging with an APP_CONFIG module (env wins).
+
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { DEFAULT_PERSONAL_PROVIDERS, type CredentialsAdapter, type ProviderEntry } from './llm/catalog.ts';
+import { CLAUDE_CODE_ID } from './llm/claudeCodeCli.ts';
 
 const expandHome = (p: string) => p.replace(/^~(?=$|\/)/, os.homedir());
 const absolutePath = z.string().min(1).transform((p) => path.resolve(expandHome(p)));
@@ -103,7 +107,7 @@ const baseSchema = z.object({
     .object({
       /**
        * personal: every provider needs the user's own key (the server pays for nothing).
-       * managed: the organization configures providers and their credentials.
+       * managed: the server operator configures providers and their credentials.
        */
       mode: z.enum(['personal', 'managed']).default('personal'),
       /** The providers users can choose from; defaults depend on the mode (see llm/catalog.ts). */
@@ -121,12 +125,19 @@ const baseSchema = z.object({
       maxIterations: z.number().int().min(1).max(100).default(20),
       /** Turns one user may have running at the same time, across conversations and server instances. */
       maxActiveTurnsPerUser: z.number().int().min(1).default(8),
+      /** Messages one user may send per minute, across server instances; 0 turns the limit off. */
+      turnsPerMinute: z.number().int().min(0).default(10),
       /** Conversations without activity for this many days are deleted. */
       idleDays: z.number().int().min(1).default(30),
-      /** Each chat gets a working directory below this folder. */
+      /** The Claude Code CLI provider works on a copy of the diagram in a folder below this one. */
       workDir: absolutePath.prefault(path.join(os.tmpdir(), 'bpmn-chat')),
+      /**
+       * Offer the local Claude Code CLI as an AI provider. Development only: it bills the account
+       * signed in on the server machine for every user, so it needs AUTH=dev.
+       */
       claudeCode: z
         .object({
+          enabled: z.boolean().default(false),
           bin: z.string().min(1).default('claude'),
           model: z.string().default(''),
           timeoutMs: z.number().int().positive().default(5 * 60 * 1000)
@@ -158,11 +169,20 @@ export const configSchema = baseSchema
     message: 'AI provider ids must be unique',
     path: ['llm', 'providers']
   })
+  .refine((c) => !c.chat.claudeCode.enabled || c.auth.kind === 'dev', {
+    message: 'the Claude Code CLI provider (CHAT_CLAUDE_CODE) is for development only and needs AUTH=dev, because it bills one account for every user',
+    path: ['chat', 'claudeCode', 'enabled']
+  })
+  .refine((c) => !c.chat.claudeCode.enabled || !(c.llm.providers ?? []).some((p) => p.id === CLAUDE_CODE_ID), {
+    message: 'the AI provider id "claude-code" is taken by the Claude Code CLI provider',
+    path: ['llm', 'providers']
+  })
   .transform((c) => ({
     ...c,
     storage: { ...c.storage, sqlitePath: c.storage.sqlitePath ?? path.join(c.dataDir, 'flowboard.sqlite') },
     llm: {
       mode: c.llm.mode,
+      // the Claude Code CLI provider (chat.claudeCode) is added by the server, see llm/claudeCodeCli.ts
       providers: (c.llm.providers ?? (c.llm.mode === 'personal' ? DEFAULT_PERSONAL_PROVIDERS : [])) as ProviderEntry[]
     }
   }));
@@ -242,7 +262,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
       systemPromptAppend: env.CHAT_SYSTEM_PROMPT_APPEND || undefined,
       toolTimeoutMs: number('CHAT_TOOL_TIMEOUT_MS'),
       idleDays: number('CHAT_IDLE_DAYS'),
+      turnsPerMinute: number('CHAT_TURNS_PER_MINUTE'),
       claudeCode: {
+        enabled: env.CHAT_CLAUDE_CODE ? env.CHAT_CLAUDE_CODE === 'on' : undefined,
         bin: env.CLAUDE_BIN || undefined,
         model: env.CLAUDE_MODEL || undefined,
         timeoutMs: number('CHAT_TIMEOUT_MS')

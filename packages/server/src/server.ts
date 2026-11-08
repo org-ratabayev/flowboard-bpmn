@@ -1,10 +1,12 @@
+// createServer: builds the HTTP server from the configuration. Checks the Origin of state-changing
+// requests (CSRF), authenticates every request (access token or session), routes to /auth, the
+// pages, static files, /api/llm and /api, and wires storage, events, AI providers and chat on start.
+
 import fsp from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { createAgentChat, type AgentChat } from './chat/agentRoutes.ts';
-import { createChatService } from './chat/chatService.ts';
-import { createClaudeCodeProvider } from './chat/claudeCode.ts';
 import { parseConfig, type Config, type ConfigInput } from './config.ts';
 import { HttpError, send, serveStatic } from './http.ts';
 import { createLiveHub } from './live.ts';
@@ -16,6 +18,7 @@ import { createAccessStore, type AccessStore } from './storage/accessStore.ts';
 import { createLocalEvents, createPostgresEvents, type EventBus } from './events.ts';
 import { resolveAppSecret } from './appSecret.ts';
 import { createCatalog } from './llm/catalog.ts';
+import { claudeCodeEntry } from './llm/claudeCodeCli.ts';
 import { createKeyStore } from './llm/keyStore.ts';
 import { forgetKeyring, handleLlm, type LlmContext } from './llm/routes.ts';
 import { handleApi, type ApiContext } from './routes.ts';
@@ -48,10 +51,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   let llm: LlmContext | null = null;
   let agentChat: AgentChat | null = null;
   const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'events' | 'viaToken' | 'agentChat' | 'upstreamToken'> = {
-    live: createLiveHub(),
-    chat: config.chat.enabled
-      ? createChatService({ provider: createClaudeCodeProvider(config.chat.claudeCode), workDir: config.chat.workDir })
-      : null
+    live: createLiveHub()
   };
 
   const httpServer = http.createServer(async (req, res) => {
@@ -135,7 +135,10 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         : createLocalEvents();
       const accessStore = access;
       // when access to a project changes, everyone connected to it learns their new role at once
-      const catalog = createCatalog(config.llm.providers);
+      const catalog = createCatalog([
+        ...config.llm.providers,
+        ...(config.chat.claudeCode.enabled ? [claudeCodeEntry(config.chat.claudeCode, config.chat.workDir)] : [])
+      ]);
       if (catalog.entries.some((p) => p.credentials.from === 'user-key')) {
         const { secret, source } = resolveAppSecret(config);
         server.appSecretSource = source;
@@ -153,6 +156,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
           keys: llm.keys,
           systemPromptAppend: config.chat.systemPromptAppend,
           maxActiveTurnsPerUser: config.chat.maxActiveTurnsPerUser,
+          turnsPerMinute: config.chat.turnsPerMinute,
           idleDays: config.chat.idleDays,
           limits: { maxIterations: config.chat.maxIterations, toolTimeoutMs: config.chat.toolTimeoutMs, pollMs: 2000 }
         });

@@ -183,7 +183,21 @@ body.editor { display: flex; flex-direction: column; height: 100vh; overflow: hi
 .side-panel.show { display: flex; }
 .history { width: 320px; }
 .chat { width: 360px; }
-.chat h2 { font-size: 14px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.chat-head { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.chat-head select { flex: 1; min-width: 0; }
+.chat-head button { padding: 4px 8px; }
+.chat-notice { margin: 0 10px 8px; padding: 8px 10px; border-radius: 6px; background: #fff7e0; font-size: 13px; }
+.chat-activity { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 4px; }
+.chat-proposal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+button.small { padding: 2px 8px; font-size: 12px; }
+.chat-actions select { max-width: 150px; }
+.save-dialog { border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 40px rgba(0, 0, 0, .2); padding: 16px 20px; width: min(520px, calc(100vw - 32px)); }
+.save-dialog::backdrop { background: rgba(0, 0, 0, .2); }
+.save-dialog h2 { font-size: 16px; margin: 0 0 12px; }
+.save-dialog label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.save-dialog textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.save-dialog .actions { display: flex; gap: 8px; margin-top: 12px; }
+.save-dialog .spacer { flex: 1; }
 .chat-log { list-style: none; margin: 0; padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .chat-msg { max-width: 92%; padding: 8px 10px; border-radius: 10px; }
 .chat-msg .chat-text { white-space: pre-wrap; word-wrap: break-word; }
@@ -209,7 +223,7 @@ body.editor { display: flex; flex-direction: column; height: 100vh; overflow: hi
 .history li:hover { background: #f3f5f8; }
 .history li.active { background: #e8f0fe; }
 .history li .when { font-weight: 500; }
-.history li .meta { color: var(--muted); font-size: 12px; }
+.history li .meta { color: var(--muted); font-size: 12px; white-space: pre-line; }
 .history li .tag { font-size: 11px; color: #fff; background: var(--ok); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
 .history li .links { display: flex; gap: 12px; margin-top: 2px; }
 .history li a { font-size: 12px; }

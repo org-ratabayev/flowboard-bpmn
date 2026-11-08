@@ -1,5 +1,6 @@
 // /api/llm…  The AI providers a user can use, and the user's own keys for them.
 //   GET    providers          the catalog for this user: readiness, and for own keys a hint and last use
+//   GET    providers/:id/models   the chat models the provider offers this user
 //   PUT    keys/:providerId   { key }  check the key with the provider, then store it for this browser
 //   DELETE keys/:providerId   forget this browser's key for the provider
 
@@ -11,6 +12,12 @@ import { KEYRING_COOKIE, newKeyring, parseKeyring, type KeyStore } from './keySt
 import { LlmError } from './types.ts';
 
 const KEYRING_DAYS = 365;
+
+// model ids that are not chat models (embeddings, speech, images, moderation, …)
+const NOT_CHAT = /embed|whisper|tts|speech|audio|transcri|realtime|dall-e|image|moderation|rerank|search|davinci|babbage|computer-use/i;
+
+/** Chat models from a provider's model list, sorted. */
+export const chatModels = (ids: string[]) => [...new Set(ids)].filter((id) => !NOT_CHAT.test(id)).sort();
 const MAX_KEY_LENGTH = 500;
 
 export interface LlmContext {
@@ -51,6 +58,24 @@ export async function handleLlm(
           : { ...p, key: null };
       })
     });
+  }
+
+  if (rest[0] === 'providers' && rest.length === 3 && rest[2] === 'models' && req.method === 'GET') {
+    // listing may need the user's own key, which only this browser can unlock
+    if (request.viaToken) return send(res, 403, { error: 'List models in the app, not with a token' });
+    const entry = llm.catalog.get(rest[1]);
+    if (!entry) return send(res, 404, { error: 'Unknown AI provider' });
+    if (entry.models.length) return send(res, 200, { models: entry.models, defaultModel: entry.defaultModel ?? entry.models[0] });
+    const userKey = entry.credentials.from === 'user-key' && llm.keys && keyring ? await llm.keys.use(request.user.id, entry.id, keyring) : null;
+    const resolved = await llm.catalog.resolve(entry, { user: request.user, upstreamToken: request.upstreamToken, userKey })
+      .catch((err: Error) => ({ unavailable: redact(err.message, userKey, request.upstreamToken) }));
+    if ('unavailable' in resolved) return send(res, 409, { error: resolved.unavailable, code: 'provider-unavailable' });
+    try {
+      const models = chatModels(await llm.catalog.client(entry.id)!.listModels(resolved.credentials));
+      return send(res, 200, { models, defaultModel: entry.defaultModel ?? null });
+    } catch (err) {
+      return send(res, 502, { error: redact(`Could not list the models of ${entry.label}: ${(err as Error).message}`, userKey, request.upstreamToken, resolved.credentials.apiKey, resolved.credentials.bearer) });
+    }
   }
 
   if (rest[0] === 'keys' && rest.length === 2) {
