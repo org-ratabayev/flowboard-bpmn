@@ -910,6 +910,83 @@ Acceptance: with an extra registry entry in config, a user can enable it in chat
 call and see the result; denying blocks the call; tokens never appear in browser network responses; restart keeps
 the connection.
 
+#### Status: postponed. Findings and open decisions (2026-11-08)
+
+Nothing is implemented yet. This records the investigation, so the work can resume from here.
+
+What the plan already decides (4.5, 9, tasks above):
+- The registry comes only from `mcp.servers` in the configuration. It is checked at startup: unique ids, `https:`
+  URLs (`http:` only for loopback), no credentials in URLs. Browsers refer to servers by id only, never by URL.
+- Transports: `streamable-http`, and `in-process` for the core `bpmn` entry (depends on phase 7, see below).
+- Tools are namespaced `<serverId>__<toolName>` and filtered by `allowedTools`. Results are capped at 100 KB of
+  text with a note. The default timeout is 15 s.
+- Approval: an `approval` event on the turn stream, answered with allow once, allow for this session, or deny; no
+  answer within 2 min counts as deny. Tools in `autoApproveTools` skip the prompt.
+- Auth kinds: `none`, `static-header` (value from a named env var), `identity-token` and `oauth` (OAuth 2.1 with
+  PKCE, metadata discovery, dynamic client registration, tokens encrypted with `APP_SECRET`, `/api/mcp-oauth/...`).
+- The user chooses which servers are on per conversation; `enabledByDefault` sets the start. Users cannot add servers.
+
+Dependency findings:
+- v2 client `@modelcontextprotocol/client@2.4.0` (Apache-2.0, released 2026-10-23, past the 14-day minimum). It
+  pulls in `@modelcontextprotocol/core@2.4.0` (Apache-2.0), `zod` (already used), `jose` (already present through
+  openid-client), and the MIT packages `eventsource@3`, `eventsource-parser@3`, `pkce-challenge@5` and
+  `cross-spawn@7`. `cross-spawn` is only used by the package's stdio entry, which would never be imported. It
+  bundles a copy of ajv (MIT) for JSON schema checks. It includes OAuth helpers (discovery, registration, PKCE).
+- v1 `@modelcontextprotocol/sdk@1.32.2` (MIT) also pulls in express, hono, cors, ajv and more: far heavier.
+- A hand-written client is small for JSON-RPC over streamable HTTP, but OAuth discovery, client registration and
+  PKCE are not; worth it only if OAuth is also hand-written or dropped.
+
+Assumptions (minor, decided unless the maintainer objects):
+- Config key `mcp.servers` plus an `MCP_SERVERS` JSON env var, mapped like `LLM_PROVIDERS`.
+- Connections are opened lazily per turn and closed when the turn ends; tool lists are cached briefly per server
+  and credential. The `eager` lifecycle is left out.
+- Only text content of a tool result goes to the model; images and other content become a short placeholder.
+  Results are passed as untrusted tool results (7.5). The server's `instructions` never enter the system prompt.
+- Tool names are shortened to what providers accept (`^[a-zA-Z0-9_-]{1,64}$`).
+- Errors from MCP servers go through `redact()` with every secret of the call; credentials are never logged,
+  stored in plaintext or returned.
+- Approvals are stored in the database and woken through the event bus, so any instance can accept them, like
+  tool results. "Allow for this session" means this conversation and is stored with it, as is the list of
+  enabled servers (a new migration; set with PATCH on the conversation).
+
+Open decisions (recommendation first):
+1. Transports. (a) Streamable HTTP only. (b) Also stdio, which starts local processes on a multi-user server.
+   Recommended: (a); no in-process entry until phase 7 exists.
+2. Credentials. (a) This phase: `none`, `static-header` (`secretEnv`), `identity-token` and `adapter` (an
+   `APP_CONFIG` function, as in the provider catalog); `identity-token` refused on access-token requests, as the
+   chat already does; full OAuth in a follow-up (9b). (b) Everything including OAuth in one PR. Recommended: (a);
+   OAuth (registration, PKCE, refresh, encrypted per-user storage, callback routes, mock authorization server in
+   tests, a Settings section) roughly doubles the work.
+3. Roles. (a) External tools whenever the user may chat (viewer and up), role re-read before every call; who may
+   use a server is decided by its credential source (an adapter can return null), because any signed-in user owns
+   their own documents, so a document role does not protect an external server. (b) A per-entry `minRole`
+   (default `editor`), checked at execution time. Recommended: (a).
+4. Approval. As planned: every call needs approval unless its tool is in `autoApproveTools`; allow once, allow for
+   this conversation, or deny; 2 min without an answer means deny. Calls on access-token requests (no browser to
+   answer) are denied unless auto-approved. Alternative: viewers limited to auto-approved tools. Recommended: as planned.
+5. Per-conversation toggles. (a) A list of server ids stored with the conversation, set with PATCH, shown as
+   toggles in the chat panel, default from `enabledByDefault`. (b) Global per user. Recommended: (a).
+6. Limits (defaults, per entry where sensible): `timeoutMs` 15 s for connect and each call; 100 KB of text per
+   result; at most 50 tools per server and 100 external tools per turn (the rest dropped with a log warning);
+   tool lists cached 5 min; at most 10 servers enabled per conversation. Recommended.
+7. Scope. (a) Tools only; resources, prompts, sampling and elicitation left out. (b) Also resources and prompts.
+   Recommended: (a).
+8. Settings UI. Without OAuth there is nothing to connect. (a) Settings lists the configured MCP servers with
+   ready or unavailable and the reason, as for providers; the "connected servers" page comes with OAuth.
+   Recommended: (a).
+9. Dependency. (a) `@modelcontextprotocol/client@2.4.0` and `@modelcontextprotocol/core@2.4.0`, pinned exactly.
+   (b) A hand-written streamable HTTP client, no new dependencies. Recommended: (a).
+
+Reviewer notes (still to be confirmed by the maintainer): agrees with all nine recommendations. On decision 4, the
+approval prompt also guards against prompt injection from shared diagram content, so `autoApproveTools` should be
+limited to read-only tools.
+
+Depends on phase 7 (left out until it exists): the in-process `bpmn` registry entry, and the 7.2 server tools
+that search other diagrams and read versions.
+
+To resume: phase 9 does not need phase 7. Branch from the latest main, read this subsection, confirm decisions 1-9
+with the maintainer, then build. Full OAuth is a planned follow-up (9b).
+
 ### Phase 10: Documentation and example deployment
 
 Tasks:

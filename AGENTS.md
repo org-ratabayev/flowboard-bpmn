@@ -15,8 +15,8 @@ planned.
 
 - User-facing behaviour, env vars and APIs: `README.md` (authoritative for users).
 - Full design and phase plan: `docs/redesign-plan.md`. Done: phases 1-6 (6a providers and keys, 6b agent loop,
-  6c chat UI and editor tools). Postponed: 7 (MCP server; findings and open decisions in the plan under Phase 7).
-  Later: 8-9 (MCP), 10 (docs, example deployment). Where the plan's target layout
+  6c chat UI and editor tools). Postponed: 7 (MCP server) and 9 (MCP client in chat); findings and open
+  decisions in the plan under each phase. Later: 8 (MCP Apps), 10 (docs, example deployment). Where the plan's target layout
   (section 3.1: a shared package, config/ and routes/ folders, a lint step, a dev script) differs from the code,
   the code is what exists today.
 
