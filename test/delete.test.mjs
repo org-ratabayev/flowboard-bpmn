@@ -1,13 +1,14 @@
-// Deleting projects: only the owner may; a soft delete hides the project from every route (list,
-// project routes, sharing, share links, live, chat, access tokens) and tells open editors at once;
-// a permanent delete needs the project name repeated and leaves nothing behind.
+// Deleting projects: only the owner may, and only in the app (not with an access token); a soft
+// delete hides the project from every route (list, project routes, sharing, share links, live,
+// chat, access tokens) and tells open editors at once; a permanent delete needs the project name
+// repeated and leaves nothing behind.
 
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
 import { browser, chatPath } from './helpers/chat.mjs';
-import { diagram, openLive, sleep, startServer } from './helpers/server.mjs';
+import { diagram, openLive, startServer } from './helpers/server.mjs';
 
 // ---- an AI provider stand-in that asks the editor for a tool and then waits -----------------
 
@@ -114,7 +115,11 @@ describe('soft delete', () => {
       ['GET', `/api/projects/${id}/chat/conversations`],
       ['POST', `/api/projects/${id}/chat/conversations`, {}],
       ['GET', chatPath(id, `/${conversation.id}`)],
-      ['POST', chatPath(id, `/${conversation.id}/turns`), { message: 'hello' }]
+      ['PATCH', chatPath(id, `/${conversation.id}`), { title: 'Renamed' }],
+      ['DELETE', chatPath(id, `/${conversation.id}`)],
+      ['POST', chatPath(id, `/${conversation.id}/turns`), { message: 'hello' }],
+      ['POST', chatPath(id, `/${conversation.id}/turns/${conversation.id}/cancel`)],
+      ['POST', chatPath(id, `/${conversation.id}/tool-results`), { turnId: conversation.id, toolCallId: 'toolu_1', content: '{}' }]
     ];
     for (const user of ['Olivia', 'Eddie', 'Vera']) {
       for (const [method, path, body] of routes) {
@@ -140,19 +145,24 @@ describe('soft delete', () => {
     assert.equal((await server.as('Linda')('GET', link.path)).status, 200);
   });
 
-  it('hides it from access tokens too; a token may soft-delete but not delete permanently', async () => {
+  it('cannot be done with an access token, soft or permanent; a deleted project is hidden from tokens too', async () => {
     const id = await sharedProject('Scripted');
-    const other = await sharedProject('Scripted too');
     const { token } = (await owner()('POST', '/api/tokens', { name: 'Script', expiresInDays: 1 })).body;
     const asToken = (method, path, body) => server.anonymous(method, path, body, { headers: { Authorization: `Bearer ${token}`, Origin: null } });
     assert.equal((await asToken('GET', `/api/projects/${id}`)).status, 200);
 
-    const refused = await asToken('DELETE', `/api/projects/${other}`, { permanent: true, confirmName: 'Scripted too' });
-    assert.equal(refused.status, 403);
-    assert.match(refused.body.error, /not with a token/);
-    assert.equal((await asToken('GET', `/api/projects/${other}`)).status, 200);
+    for (const body of [undefined, { permanent: true, confirmName: 'Scripted' }]) {
+      const refused = await asToken('DELETE', `/api/projects/${id}`, body);
+      assert.equal(refused.status, 403, JSON.stringify(body));
+      assert.deepEqual(refused.body, { error: 'Delete projects in the app, not with a token' });
+      assert.equal((await asToken('GET', `/api/projects/${id}`)).status, 200);
+    }
+    // an editor's token still gets the role answer first
+    const { token: editorToken } = (await server.as('Eddie')('POST', '/api/tokens', { name: 'Editor script', expiresInDays: 1 })).body;
+    const asEditorToken = (method, path, body) => server.anonymous(method, path, body, { headers: { Authorization: `Bearer ${editorToken}`, Origin: null } });
+    assert.equal((await asEditorToken('DELETE', `/api/projects/${id}`)).status, 403);
 
-    assert.equal((await asToken('DELETE', `/api/projects/${id}`)).status, 204);
+    assert.equal((await owner()('DELETE', `/api/projects/${id}`)).status, 204);
     assert.equal((await asToken('GET', `/api/projects/${id}`)).status, 404);
     assert.equal((await asToken('GET', `/api/projects/${id}/history`)).status, 404);
     assert.ok(!(await asToken('GET', '/api/projects')).body.some((p) => p.id === id));
@@ -191,9 +201,10 @@ describe('soft delete', () => {
 
     assert.equal((await owner()('DELETE', `/api/projects/${id}`)).status, 204);
     const result = await turn;
+    // the stream ends only after the agent loop finished, so no model call can follow
     assert.equal(result.events.at(-1).event, 'cancelled');
+    assert.ok(!result.events.some((e) => e.event === 'tool_result'), 'the tool call was never answered');
     assert.ok(Date.now() - started < 10000, 'ended long before the tool timeout');
-    await sleep(100);
     assert.equal(providerCalls.length, calls, 'no further model calls');
   });
 });

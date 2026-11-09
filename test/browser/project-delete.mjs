@@ -58,7 +58,8 @@ describe('deleting projects in the browser', () => {
     await signInAs('Olivia');
     await page.goto(`${server.base}/p/${id}`);
     await page.waitFor(`document.querySelector('.djs-element[data-element-id="Activity_1"]')`, { what: 'the diagram' });
-    await new Promise((r) => setTimeout(r, 300)); // the live stream connects after the first load
+    // the live stream connects after the first load; our own avatar appears once the server said hello
+    await page.waitFor(`document.querySelector('#participants .avatar.me')`, { what: 'the live connection' });
     assert.equal((await server.as('Olivia')('DELETE', `/api/projects/${id}`)).status, 204);
     await page.waitFor(`document.getElementById('projectDeleted')`, { what: 'the deleted notice' });
     assert.equal(await page.eval(`document.querySelector('#projectDeleted h1').textContent`), 'This project was deleted');
