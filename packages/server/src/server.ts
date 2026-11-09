@@ -162,9 +162,13 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         });
         await agentChat.sweep();
       }
+      const documents = store;
       events.subscribe('access', (documentId) => {
-        ctx.live.refreshAccess(documentId, (userId) => accessStore.roleOf(userId, documentId))
-          .catch((err) => console.error('Refreshing live access failed:', err));
+        (async () => {
+          // a deleted project (soft or permanent) closes for everyone, with its own notice
+          if (!(await documents.hasProject(documentId))) return ctx.live.projectDeleted(documentId);
+          return ctx.live.refreshAccess(documentId, (userId) => accessStore.roleOf(userId, documentId));
+        })().catch((err) => console.error('Refreshing live access failed:', err));
       });
       await authStore.deleteExpiredSessions();
       if (config.storage.importOnFirstStart && (await store.countProjects()) === 0) {

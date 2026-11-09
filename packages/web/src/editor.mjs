@@ -109,12 +109,15 @@ async function onAccessChanged(role) {
   ]);
 }
 
-/** Our access to the project was removed while it was open. */
-function onAccessRevoked() {
+/** Our access to the project was removed, or the project was deleted, while it was open. */
+function onAccessRevoked({ reason } = {}) {
   modeler.destroy();
   document.body.className = '';
-  document.body.innerHTML = `<div class="page"><h1>You no longer have access</h1>
-    <p class="sub">The owner removed your access to this project.</p><p><a href="/">Back to your projects</a></p></div>`;
+  document.body.innerHTML = reason === 'deleted'
+    ? `<div class="page" id="projectDeleted"><h1>This project was deleted</h1>
+       <p class="sub">The owner deleted this project, so it can no longer be opened or saved.</p><p><a href="/">Back to your projects</a></p></div>`
+    : `<div class="page"><h1>You no longer have access</h1>
+       <p class="sub">The owner removed your access to this project.</p><p><a href="/">Back to your projects</a></p></div>`;
 }
 
 let live = null;      // live collaboration client, connected after the first load

@@ -289,7 +289,8 @@ access_tokens(id uuid pk, user_id uuid fk, name text, token_hash text unique,
 
 documents(id uuid pk, name text, owner_id uuid fk users,
           visibility text check (visibility in ('private','everyone')) default 'private',
-          current_version_id uuid null, created_at, updated_at, deleted_at null)
+          current_version_id uuid null, created_at, updated_at,
+          deleted_at null, deleted_by uuid fk users null)   -- 009_document_deletion
 
 document_versions(id uuid pk, document_id uuid fk, seq integer /* 1,2,3… per document */,
                   xml text, author_id uuid fk null, author_name text, note text null,
@@ -313,8 +314,17 @@ live_state(document_id uuid pk, rev integer, xml text, base_version_id uuid, upd
 Notes:
 
 - `documents.owner_id` is the only owner. Ownership transfer is a later feature (out of scope).
-- Delete is soft (`deleted_at`), purged after a configurable retention (default 30 days). Owners can restore from a
-  "Trash" view.
+- **Deletion (decided 2026-11-09, replaces the earlier "purge after 30 days, Trash view" idea).** Only the owner
+  deletes. The default is a soft delete: `deleted_at` / `deleted_by` are set and the project behaves like a
+  non-existent one everywhere (list, every project route, share links, invitations, live, chat, access tokens, CLI
+  export), but all its rows stay. There is no Trash or restore UI and no automatic purge; a server admin restores
+  with `pnpm flowboard restore <id>` (or SQL, see README "Deleting projects") and can list soft-deleted projects
+  with `pnpm flowboard deleted`. A permanent delete is a secondary option in the same dialog: the user types the
+  project name, the server checks it again (`confirmName`), and one transaction removes the project with its
+  versions, grants, share links, pending invitations, chat conversations (messages, turns, tool calls) and its
+  audit entries. The audit log then keeps one `project.purge` entry (project id, actor, time, counts; no name or
+  content, `document_id` empty so a new project with the same id starts clean). Soft-deleted projects are purged
+  only explicitly (`pnpm flowboard purge <id> --yes`). Access tokens may soft-delete but not delete permanently.
 - XML size limit: 20 MB per version (same as today's live limit), configurable.
 - `pending_grants` turn into `document_grants` when a user with that email signs in for the first time.
 
@@ -333,7 +343,7 @@ resolveRole(identity, document, shareLinkToken?) =
     document.visibility == 'everyone' && identity   ? viewer : none,
     valid share link (not expired/revoked)          ? link.role : none,
   )
-deleted documents: owner only (for restore); everyone else gets none.
+deleted documents (deleted_at set): none for everyone, the owner included (restore is an admin task, 5).
 ```
 
 Every document route uses one middleware: `requireRole('viewer' | 'editor' | 'owner')`. It loads the document,
@@ -356,7 +366,9 @@ Anonymous access via share links is off by default (`allowAnonymousShareLinks: f
 | AI chat: ask questions (read-only tools) | ✅ | ✅ | ✅ |
 | AI chat: edit diagram | ❌ | ✅ | ✅ |
 | Rename | ❌ | ✅ | ✅ |
-| Share (grants, links, visibility), delete, restore from trash | ❌ | ❌ | ✅ |
+| Share (grants, links, visibility), delete (soft or permanent) | ❌ | ❌ | ✅ |
+
+Restoring a deleted project is not a role: only a server admin can do it (CLI or SQL, see 5).
 
 Open question Q3 asks whether viewers see author names in history; default is yes.
 
@@ -372,7 +384,10 @@ The SSE live channel (`live.js`) is ported to `packages/server/src/live/` with t
     (grant created/updated/deleted, visibility change, link revoked, document deleted).
   - `access-revoked`: role became `none`; the server then closes that stream.
 - Role changes are published on the events bus (`grant.changed {documentId, userId}`); each instance's live module
-  recomputes the role for affected connections and emits `access`. With Postgres, the bus is backed by
+  recomputes the role for affected connections and emits `access`. A deleted project (soft or permanent, 2026-11-09)
+  is announced on the same `access` topic: each instance sends `access-revoked {reason: 'deleted'}` to every
+  connection of that project, closes them and drops the room with its unsaved draft; the editor shows "This project
+  was deleted" and stops saving. Running chat turns of the project are cancelled through the `chat` topic. With Postgres, the bus is backed by
   `LISTEN/NOTIFY` so all instances get it.
 - Unsaved shared drafts are kept in memory as today. With Postgres and several instances, either enable sticky
   sessions per document or persist drafts in `live_state` (decide in Phase 5; default: `live_state` when
@@ -689,6 +704,11 @@ Implementation notes (4a done; 4b share links, pending grants by email and audit
   `/s/<token>` page (signed-in users only; access tokens cannot join). Invitations use `pending_grants` and are
   accepted when a user signs in with that email; unverified OIDC emails are not kept, so they cannot claim them.
   The audit log covers creation, visibility, members, links, joins and invitations; the owner reads it in the dialog.
+- Project delete (done 2026-11-09, migration `009_document_deletion`; decisions in 5): `DELETE /api/projects/:id`
+  (owner only; `{ permanent: true, confirmName }` for a permanent delete), a Delete dialog on the project list for
+  owners (not in the editor), and `pnpm flowboard deleted | restore <id> | purge <id> --yes` for admins. `roleOf`,
+  the project list, the CLI export, `joinByLink` (answers 410 "no longer available"), grants and invitation
+  acceptance all skip deleted documents. The 405 check in the matrix test now uses POST, since DELETE is a route.
 
 ### Phase 5: Live collaboration on the new model + live role changes
 

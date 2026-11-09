@@ -1,5 +1,10 @@
 // Projects and their version history in SQLite or Postgres (see migrations.ts for the schema).
 // Ids and version names keep the format of the earlier folder storage, so links stay valid.
+//
+// Deleting is soft by default: deleted_at hides the project from every route (roleOf answers
+// 'none'), the list, the CLI export and share links, while all its data stays until an admin
+// restores it or someone purges it. Purging removes the project and everything keyed to it;
+// the audit log keeps one entry saying that it happened, without the content.
 
 import { EMPTY_DIAGRAM } from '../bpmn.ts';
 import { adoptUnowned, audit, ROLE_SQL, type Role, type Visibility } from './accessStore.ts';
@@ -67,6 +72,20 @@ export interface ImportedProject {
   versions: Array<{ name: string; at: string; xml: string; author: string | null; note: string | null }>;
 }
 
+export interface DeletedProject {
+  id: string;
+  name: string;
+  deletedAt: string;
+  deletedBy: { id: string; name: string } | null;
+  owner: { id: string; name: string } | null;
+  versionCount: number;
+}
+
+/** Chat conversations of a deleted project whose running turn must stop (publish them on the `chat` topic). */
+export interface DeleteResult {
+  stopConversations: string[];
+}
+
 export type DocumentStore = ReturnType<typeof createSqlStore>;
 
 function slugify(name: string): string {
@@ -130,16 +149,18 @@ export function createSqlStore(db: Db) {
   return {
     db,
 
+    /** True for an existing project that is not deleted. */
     async hasProject(id: string): Promise<boolean> {
       if (!isProjectId(id)) return false;
-      return db.read(async (q) => !!(await q.get('SELECT id FROM documents WHERE id = $1', [id])));
+      return db.read(async (q) => !!(await q.get('SELECT id FROM documents WHERE id = $1 AND deleted_at IS NULL', [id])));
     },
 
+    /** All projects, deleted ones included (decides whether to import on first start). */
     countProjects(): Promise<number> {
       return db.read(async (q) => Number((await q.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM documents'))!.n));
     },
 
-    /** Projects the user can see, with their role; without a user, every project (exports, CLI). */
+    /** Projects the user can see, with their role; without a user, every project (exports, CLI). Never deleted ones. */
     listProjects(userId?: string): Promise<ProjectSummary[]> {
       return db.read(async (q) => {
         const rows = await q.all<{
@@ -153,7 +174,8 @@ export function createSqlStore(db: Db) {
            FROM documents d
            LEFT JOIN users o ON o.id = d.owner_id
            LEFT JOIN document_grants g ON g.document_id = d.id AND g.user_id = $1
-           ${userId ? `WHERE d.owner_id = $1 OR g.role IS NOT NULL OR d.visibility = 'everyone'` : ''}
+           WHERE d.deleted_at IS NULL
+           ${userId ? `AND (d.owner_id = $1 OR g.role IS NOT NULL OR d.visibility = 'everyone')` : ''}
            ORDER BY d.updated_at DESC, d.id`,
           [userId ?? '']
         );
@@ -234,6 +256,101 @@ export function createSqlStore(db: Db) {
         const latest = await latestVersion(q, id);
         if (!options.force && options.baseVersion !== (latest?.info.version ?? null)) return { conflict: latest?.info ?? null };
         return { saved: await insertVersion(q, id, xml, options) };
+      });
+    },
+
+    /**
+     * Soft delete: hides the project from everyone and asks its running chat turns to stop.
+     * Null when there is no such (undeleted) project.
+     */
+    deleteProject(id: string, actorId: string | null): Promise<DeleteResult | null> {
+      return db.transaction(async (q) => {
+        const lock = db.dialect === 'postgres' ? ' FOR UPDATE' : '';
+        const doc = await q.get<{ name: string }>(`SELECT name FROM documents WHERE id = $1 AND deleted_at IS NULL${lock}`, [id]);
+        if (!doc) return null;
+        await q.run('UPDATE documents SET deleted_at = $2, deleted_by = $3 WHERE id = $1', [id, new Date().toISOString(), actorId]);
+        const running = await q.all<{ conversation_id: string }>(
+          `SELECT DISTINCT t.conversation_id FROM chat_turns t JOIN chat_conversations c ON c.id = t.conversation_id
+           WHERE c.document_id = $1 AND t.status = 'running'`,
+          [id]
+        );
+        await q.run(
+          `UPDATE chat_turns SET cancel_requested = 1
+           WHERE status = 'running' AND conversation_id IN (SELECT id FROM chat_conversations WHERE document_id = $1)`,
+          [id]
+        );
+        await audit(q, { documentId: id, actorId, action: 'project.delete', details: { name: doc.name } });
+        return { stopConversations: running.map((r) => r.conversation_id) };
+      });
+    },
+
+    /**
+     * Permanent delete: removes the project with its versions, grants, share links, invitations,
+     * chat conversations (messages, turns, tool calls) and its audit entries, then records one
+     * `project.purge` audit entry (no name or content; document_id stays empty so a later project
+     * with the same id does not inherit it). With `onlyDeleted`, only a soft-deleted project is
+     * purged (admin CLI). Null when there is no such project.
+     */
+    purgeProject(id: string, actorId: string | null, { onlyDeleted = false, via = 'app' }: { onlyDeleted?: boolean; via?: 'app' | 'cli' } = {}): Promise<DeleteResult | null> {
+      return db.transaction(async (q) => {
+        const lock = db.dialect === 'postgres' ? ' FOR UPDATE' : '';
+        const doc = await q.get<{ deleted_at: unknown }>(`SELECT deleted_at FROM documents WHERE id = $1${lock}`, [id]);
+        if (!doc || (onlyDeleted && !doc.deleted_at)) return null;
+        const versions = Number((await q.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM document_versions WHERE document_id = $1', [id]))!.n);
+        const conversations = (await q.all<{ id: string }>('SELECT id FROM chat_conversations WHERE document_id = $1', [id])).map((r) => r.id);
+        // children first; the foreign keys would cascade as well, but this does not depend on them
+        const ofConversations = 'SELECT id FROM chat_conversations WHERE document_id = $1';
+        await q.run(`DELETE FROM chat_tool_calls WHERE turn_id IN (SELECT id FROM chat_turns WHERE conversation_id IN (${ofConversations}))`, [id]);
+        await q.run(`DELETE FROM chat_turns WHERE conversation_id IN (${ofConversations})`, [id]);
+        await q.run(`DELETE FROM chat_messages WHERE conversation_id IN (${ofConversations})`, [id]);
+        await q.run('DELETE FROM chat_conversations WHERE document_id = $1', [id]);
+        await q.run('DELETE FROM document_grants WHERE document_id = $1', [id]);
+        await q.run('DELETE FROM pending_grants WHERE document_id = $1', [id]);
+        await q.run('DELETE FROM share_links WHERE document_id = $1', [id]);
+        await q.run('DELETE FROM document_versions WHERE document_id = $1', [id]);
+        await q.run('DELETE FROM audit_log WHERE document_id = $1', [id]);
+        await q.run('DELETE FROM documents WHERE id = $1', [id]);
+        await audit(q, {
+          documentId: null,
+          actorId,
+          action: 'project.purge',
+          details: { projectId: id, versions, conversations: conversations.length, wasDeleted: !!doc.deleted_at, via }
+        });
+        return { stopConversations: conversations };
+      });
+    },
+
+    /** Soft-deleted projects, most recently deleted first (admin CLI). */
+    listDeletedProjects(): Promise<DeletedProject[]> {
+      return db.read(async (q) =>
+        (await q.all<{
+          id: string; name: string; deleted_at: unknown; deleted_by: string | null; deleted_by_name: string | null;
+          owner_id: string | null; owner_name: string | null; version_count: unknown;
+        }>(
+          `SELECT d.id, d.name, d.deleted_at, d.deleted_by, b.name AS deleted_by_name, d.owner_id, o.name AS owner_name,
+                  (SELECT COUNT(*) FROM document_versions v WHERE v.document_id = d.id) AS version_count
+           FROM documents d
+           LEFT JOIN users b ON b.id = d.deleted_by
+           LEFT JOIN users o ON o.id = d.owner_id
+           WHERE d.deleted_at IS NOT NULL
+           ORDER BY d.deleted_at DESC, d.id`
+        )).map((r) => ({
+          id: r.id,
+          name: r.name || r.id,
+          deletedAt: toIso(r.deleted_at)!,
+          deletedBy: r.deleted_by ? { id: r.deleted_by, name: r.deleted_by_name ?? 'deleted user' } : null,
+          owner: r.owner_id ? { id: r.owner_id, name: r.owner_name ?? 'deleted user' } : null,
+          versionCount: Number(r.version_count)
+        }))
+      );
+    },
+
+    /** Undoes a soft delete (admin CLI): the project comes back with its sharing as before. False when it is not deleted. */
+    restoreProject(id: string): Promise<boolean> {
+      return db.transaction(async (q) => {
+        const restored = (await q.run('UPDATE documents SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL', [id])).changes > 0;
+        if (restored) await audit(q, { documentId: id, actorId: null, action: 'project.restore', details: { via: 'cli' } });
+        return restored;
       });
     },
 

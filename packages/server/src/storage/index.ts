@@ -23,6 +23,8 @@ export {
   createSqlStore,
   isProjectId,
   isVersionName,
+  type DeletedProject,
+  type DeleteResult,
   type DocumentStore,
   type ProjectMeta,
   type ProjectSummary,

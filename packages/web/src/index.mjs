@@ -1,6 +1,7 @@
 // Project list page. (A module rather than an inline script, so the page can forbid inline scripts.)
 
 import './session.mjs';
+import { openDeleteDialog } from './deleteDialog.mjs';
 
 const listEl = document.getElementById('list');
 const nameEl = document.getElementById('newName');
@@ -22,6 +23,7 @@ function esc(s) {
 
 const ACCESS = { owner: 'You own it', editor: 'Can edit', viewer: 'Can view' };
 let filter = 'all';
+let shown = new Map(); // id -> project, as listed
 
 function accessCell(p) {
   const owner = p.role === 'owner' ? '' : ` · ${esc(p.owner?.name || 'no owner')}`;
@@ -37,10 +39,25 @@ document.getElementById('filters').addEventListener('click', (e) => {
   load();
 });
 
+// only owners get a Delete button (the server refuses everyone else as well)
+listEl.addEventListener('click', (e) => {
+  const button = e.target.closest('button[data-delete]');
+  const project = button && shown.get(button.dataset.delete);
+  if (!project) return;
+  openDeleteDialog({
+    project,
+    onDeleted: (permanent) => {
+      toast(permanent ? `“${project.name}” was deleted permanently` : `“${project.name}” was deleted`);
+      load();
+    }
+  });
+});
+
 async function load() {
   const res = await fetch('/api/projects');
   const all = await res.json();
   const projects = all.filter((p) => filter === 'all' || (filter === 'mine' ? p.role === 'owner' : p.role !== 'owner'));
+  shown = new Map(projects.map((p) => [p.id, p]));
   if (!projects.length) {
     listEl.innerHTML = `<div class="empty">${all.length
       ? 'No projects here.'
@@ -58,7 +75,8 @@ async function load() {
             <td>${esc(fmt(p.updatedAt))}</td>
             <td>${esc(p.updatedBy || '—')}</td>
             <td class="num">${p.versionCount}</td>
-            <td><a href="/api/projects/${encodeURIComponent(p.id)}/download">Download</a></td>
+            <td><a href="/api/projects/${encodeURIComponent(p.id)}/download">Download</a>${p.role === 'owner'
+              ? ` <button type="button" class="small danger" data-delete="${esc(p.id)}">Delete</button>` : ''}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;

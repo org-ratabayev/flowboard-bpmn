@@ -428,6 +428,21 @@ const SCHEMA_CHANGES: SchemaChange[] = [
         );
       `
     }
+  },
+  {
+    // Soft delete: a deleted project stays in the database, hidden from everyone, until an admin
+    // restores or purges it (no automatic purge). deleted_by keeps who deleted it.
+    id: '009_document_deletion',
+    sql: {
+      sqlite: `
+        ALTER TABLE documents ADD COLUMN deleted_at TEXT;
+        ALTER TABLE documents ADD COLUMN deleted_by TEXT REFERENCES users(id) ON DELETE SET NULL
+      `,
+      postgres: `
+        ALTER TABLE documents ADD COLUMN deleted_at TIMESTAMPTZ;
+        ALTER TABLE documents ADD COLUMN deleted_by TEXT REFERENCES users(id) ON DELETE SET NULL
+      `
+    }
   }
 ];
 

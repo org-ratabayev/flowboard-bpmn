@@ -15,6 +15,9 @@ const res = await fetch('/api/share/join', {
 const body = await res.json().catch(() => ({}));
 if (res.ok) {
   location.replace(`/p/${encodeURIComponent(body.projectId)}`);
+} else if (body.reason === 'deleted') {
+  document.querySelector('h1').textContent = 'This project is no longer available';
+  message.textContent = 'The owner deleted the project this link points to.';
 } else {
   document.querySelector('h1').textContent = 'This link does not work';
   message.textContent = body.error || `Something went wrong (${res.status}).`;

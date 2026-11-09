@@ -40,7 +40,9 @@ describe('every project route checks the role', () => {
     ['revoke a share link', 'owner', () => ['DELETE', `/api/projects/${id}/access/links/no-such-link`], 404],
     ['invite by email', 'owner', () => ['POST', `/api/projects/${id}/access/invites`, { email: 'someone@example.com', role: 'viewer' }], 200],
     ['cancel an invitation', 'owner', () => ['DELETE', `/api/projects/${id}/access/invites/nobody%40example.com`], 404],
-    ['read the access log', 'owner', () => ['GET', `/api/projects/${id}/access/log`], 200]
+    ['read the access log', 'owner', () => ['GET', `/api/projects/${id}/access/log`], 200],
+    // a wrong name keeps the project (the delete itself is covered in delete.test.mjs)
+    ['delete permanently (wrong name)', 'owner', () => ['DELETE', `/api/projects/${id}`, { permanent: true, confirmName: 'Wrong name' }], 400]
   ];
 
   for (const [description, minimum, makeRequest, okStatus] of routes) {
@@ -54,7 +56,7 @@ describe('every project route checks the role', () => {
         const res = await server.as(user)(method, path, body);
         assert.equal(res.status, expected, JSON.stringify(res.body));
         if (expected === 404 && role === 'none') assert.deepEqual(res.body, { error: 'Project not found' });
-        if (expected === 403) assert.match(res.body.error, minimum === 'owner' ? /Only the owner/ : /view this project but not change it/);
+        if (expected === 403) assert.match(res.body.error, minimum === 'owner' ? /^Only the owner can/ : /view this project but not change it/);
       });
     }
   }
@@ -78,8 +80,8 @@ describe('every project route checks the role', () => {
   });
 
   it('answers 405 for unsupported methods before checking the role', async () => {
-    assert.equal((await server.as('Vera')('DELETE', `/api/projects/${id}`)).status, 405);
-    assert.equal((await server.as('Sam')('DELETE', `/api/projects/${id}`)).status, 404);
+    assert.equal((await server.as('Vera')('POST', `/api/projects/${id}`, {})).status, 405);
+    assert.equal((await server.as('Sam')('POST', `/api/projects/${id}`, {})).status, 404);
   });
 });
 
