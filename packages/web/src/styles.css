@@ -173,6 +173,14 @@ body.editor { display: flex; flex-direction: column; height: 100vh; overflow: hi
    It is a sibling of the canvas; isolating the canvas keeps everything drawn inside it (overlays,
    lint markers, live cursors, minimap) below the watermark, whatever z-index those use. */
 .bjs-container > .djs-container { isolation: isolate; }
+/* Zoom buttons: bottom-left of the canvas, but right of the palette (one or two columns wide, up to
+   about 130px) so they never cover it at any window height. The watermark is bottom-right and the
+   panels sit beside the canvas, so nothing else meets them. */
+.zoom-controls { position: absolute; left: 148px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+.zoom-controls.compact { left: 50%; transform: translateX(-50%); bottom: 64px; flex-direction: row; } /* narrow canvas: above the lint button */
+/* token simulation notifications also sit bottom-left: keep them entirely above the zoom group */
+#canvas .bts-notifications { bottom: 128px; }
+.zoom-controls button { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 .side-panel {
   border-left: 1px solid var(--border);
   background: var(--surface);
