@@ -146,19 +146,36 @@ describe('Editor chrome', () => {
     assert.equal(await page.eval(`!!document.getElementById('shareBtn')`), true);
   });
 
+  // layout changes are noticed by the ResizeObserver on the next frame; a person clicks later than that
+  const settle = () => page.eval(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 50))))`);
+  const viewport = async (width, height) => {
+    await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    await settle();
+  };
+  // where the diagram sits in the canvas, as fractions of the canvas box
+  const diagramBox = () => page.eval(`(() => {
+    const c = document.getElementById('canvas').getBoundingClientRect();
+    const d = document.querySelector('.viewport').getBoundingClientRect();
+    return { left: d.left - c.left, right: c.right - d.right, top: d.top - c.top, bottom: c.bottom - d.bottom, width: c.width, height: c.height };
+  })()`);
+  const assertFitted = async (what) => {
+    const b = await diagramBox();
+    assert.ok(b.left >= -1 && b.right >= -1 && b.top >= -1 && b.bottom >= -1, `${what}: the diagram lies inside the canvas ${JSON.stringify(b)}`);
+    assert.ok(Math.abs(b.left - b.right) < 2 && Math.abs(b.top - b.bottom) < 2, `${what}: the diagram is centred ${JSON.stringify(b)}`);
+  };
+  const noOverlap = (selector) => page.eval(`(() => {
+    const z = document.querySelector('.zoom-controls').getBoundingClientRect();
+    const o = document.querySelector('${selector}').getBoundingClientRect();
+    return z.right <= o.left || z.left >= o.right || z.bottom <= o.top || z.top >= o.bottom;
+  })()`);
+
   it('zooms in, out and fits the diagram with the buttons bottom-left of the canvas', async () => {
     assert.equal(await page.eval(`document.querySelectorAll('.zoom-controls button').length`), 3);
     assert.equal(await page.eval(`[...document.querySelectorAll('.zoom-controls button')].every((b) => b.title && b.getAttribute('aria-label'))`), true);
-    const placed = await page.eval(`(() => {
-      const z = document.querySelector('.zoom-controls').getBoundingClientRect();
-      const c = document.getElementById('canvas').getBoundingClientRect();
-      const w = document.querySelector('.bjs-powered-by').getBoundingClientRect();
-      return { nearLeft: z.left - c.left < 40, nearBottom: c.bottom - z.bottom < 40, clearOfWatermark: z.right <= w.left || z.bottom <= w.top };
-    })()`);
-    assert.deepEqual(placed, { nearLeft: true, nearBottom: true, clearOfWatermark: true });
 
+    // one click on fit is right straight away, with the chat panel open
     await clickZoom('fit');
-    await clickZoom('fit'); // the first one may still follow a panel resize
+    await assertFitted('fit with the chat open');
     const fitted = await zoomLevel();
     await clickZoom('in');
     const zoomedIn = await zoomLevel();
@@ -168,10 +185,38 @@ describe('Editor chrome', () => {
     const zoomedOut = await zoomLevel();
     assert.ok(zoomedOut < fitted, `zoom out: ${zoomedOut} < ${fitted}`);
     await clickZoom('fit');
-    const refitted = await zoomLevel();
-    assert.ok(Math.abs(refitted - fitted) < 1e-3, `fit returns to the fitted level (${fitted} vs ${refitted})`);
-    // the watermark is still there
-    assert.equal(await page.eval(`!!document.querySelector('.bjs-powered-by')`), true);
+    assert.ok(Math.abs((await zoomLevel()) - fitted) < 1e-3, 'fit returns to the fitted level');
+  });
+
+  it('measures the canvas again after a panel opens or closes or the window changes', async () => {
+    await page.eval(`document.getElementById('closeChat').click()`);
+    await settle();
+    await clickZoom('fit');
+    await assertFitted('fit after closing the chat');
+    await page.eval(`document.getElementById('propertiesBtn').click()`);
+    await settle();
+    await clickZoom('fit');
+    await assertFitted('fit after opening Properties');
+    await page.eval(`document.getElementById('propertiesBtn').click()`);
+    await settle();
+    await viewport(900, 700);
+    await clickZoom('fit');
+    await assertFitted('fit after resizing the window');
+    await viewport(1400, 900);
+    await clickZoom('fit');
+    await assertFitted('fit after enlarging the window');
+  });
+
+  it('keeps the buttons clear of the palette and the bpmn.io watermark at laptop window sizes', async () => {
+    for (const [w, h] of [[1280, 800], [1366, 768], [1400, 900], [1280, 850]]) {
+      await viewport(w, h);
+      await clickZoom('fit');
+      assert.equal(await noOverlap('.djs-palette'), true, `palette at ${w}x${h}`);
+      assert.equal(await noOverlap('.bjs-powered-by'), true, `watermark at ${w}x${h}`);
+      assert.equal(await page.eval(`document.querySelector('.zoom-controls').getBoundingClientRect().left - document.getElementById('canvas').getBoundingClientRect().left < 200`), true, 'bottom-left');
+      assert.equal(await page.eval(`document.getElementById('canvas').getBoundingClientRect().bottom - document.querySelector('.zoom-controls').getBoundingClientRect().bottom < 40`), true, 'bottom');
+    }
+    await viewport(1400, 900);
   });
 });
 

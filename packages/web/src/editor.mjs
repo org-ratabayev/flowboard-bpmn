@@ -57,6 +57,9 @@ const modeler = new BpmnJS({
 modeler.on('linting.toggle', ({ active }) => prefs.set('lint', active));
 
 createZoomControls(modeler.get('canvas'), document.getElementById('canvas'));
+// bpmn-js caches the canvas size and only re-measures on resized(); without this, fit and zoom use a stale
+// size after a side panel opens or closes or the window changes (any change of the canvas box).
+new ResizeObserver(() => modeler.get('canvas').resized()).observe(document.getElementById('canvas'));
 const readOnly = createReadOnly(modeler, { propertiesEl: document.getElementById('properties') });
 
 const state = {

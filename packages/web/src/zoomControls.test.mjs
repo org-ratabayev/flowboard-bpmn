@@ -23,6 +23,13 @@ describe('nextZoom', () => {
     expect(nextZoom(ZOOM_MIN, -1)).toBe(ZOOM_MIN);
     expect(nextZoom(3.9, 1)).toBe(ZOOM_MAX);
   });
+
+  it('never moves the wrong way from a level outside the bounds', () => {
+    expect(nextZoom(0.1, -1)).toBe(0.1); // fit-to-view can go below the minimum
+    expect(nextZoom(0.1, 1)).toBeGreaterThan(0.1);
+    expect(nextZoom(5, 1)).toBe(5);
+    expect(nextZoom(5, -1)).toBeLessThan(5);
+  });
 });
 
 describe('createZoomControls', () => {

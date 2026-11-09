@@ -6,10 +6,38 @@ export const ZOOM_STEP = 1.2;
 export const ZOOM_MIN = 0.2; // same bounds as bpmn-js wheel zoom
 export const ZOOM_MAX = 4;
 
-/** The zoom level one step in (`direction` 1) or out (-1), kept within the bounds. */
+/**
+ * The zoom level one step in (`direction` 1) or out (-1), kept within the bounds. Monotonic: a level
+ * already outside the bounds (fit-to-view has none) is never moved the wrong way, so out never zooms in.
+ */
 export function nextZoom(current, direction) {
-  const next = direction > 0 ? current * ZOOM_STEP : current / ZOOM_STEP;
-  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+  if (direction > 0) return Math.max(current, Math.min(ZOOM_MAX, current * ZOOM_STEP));
+  return Math.min(current, Math.max(ZOOM_MIN, current / ZOOM_STEP));
+}
+
+// Icons as inline SVG paths (24x24 grid): no font dependency, allowed by the CSP
+const ICONS = {
+  in: 'M12 5v14M5 12h14',
+  out: 'M5 12h14',
+  fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5'
+};
+
+function icon(path) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '18');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('aria-hidden', 'true');
+  const el = document.createElementNS(ns, 'path');
+  el.setAttribute('d', path);
+  el.setAttribute('fill', 'none');
+  el.setAttribute('stroke', 'currentColor');
+  el.setAttribute('stroke-width', '2');
+  el.setAttribute('stroke-linecap', 'round');
+  el.setAttribute('stroke-linejoin', 'round');
+  svg.append(el);
+  return svg;
 }
 
 const BUTTONS = [
@@ -28,13 +56,13 @@ export function createZoomControls(canvas, parent) {
     out: () => canvas.zoom(nextZoom(canvas.zoom(), -1)),
     fit: () => canvas.zoom('fit-viewport', 'auto')
   };
-  for (const { action, label, text } of BUTTONS) {
+  for (const { action, label } of BUTTONS) {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.zoom = action;
     button.title = label;
     button.setAttribute('aria-label', label);
-    button.textContent = text;
+    button.append(icon(ICONS[action]));
     button.addEventListener('click', run[action]);
     group.append(button);
   }
