@@ -4,8 +4,9 @@
 //   <dir>/<project-id>/history/<version>.bpmn every saved version
 //   <dir>/<project-id>/history/log.jsonl      one line per version: version, at, author, note, size
 //
-// Exports include soft-deleted projects (with `deletedAt`), so an export is a complete backup;
-// importing such a folder adds the project as deleted again (an admin can restore it).
+// Exports hold names, dates and versions (not owners, sharing, chats or the log) and include
+// soft-deleted projects (with `deletedAt`); importing such a folder adds the project as deleted
+// again (an admin can restore it).
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -84,7 +85,10 @@ export async function readProjectFolder(dir: string): Promise<ImportedProject | 
     versions.push({ name, at, xml: latest, author: null, note: versions.length ? 'Imported (latest file)' : 'Imported' });
   }
 
-  const deletedAt = typeof meta.deletedAt === 'string' && !Number.isNaN(Date.parse(meta.deletedAt)) ? new Date(meta.deletedAt).toISOString() : null;
+  // fails closed: any deletedAt that is set but not a valid date still imports the project as deleted (as of now)
+  const marked = meta.deletedAt !== undefined && meta.deletedAt !== null;
+  const parsed = typeof meta.deletedAt === 'string' ? Date.parse(meta.deletedAt) : NaN;
+  const deletedAt = !marked ? null : new Date(Number.isNaN(parsed) ? Date.now() : parsed).toISOString();
   return { id, name: meta.name || id, createdAt: meta.createdAt || null, importKey: `folder:${id}`, versions, deletedAt };
 }
 

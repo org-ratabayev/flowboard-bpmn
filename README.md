@@ -93,9 +93,13 @@ bpmn-diagrams/
 - `pnpm flowboard import --from <folder> [--dry-run]` imports project folders at any time. Projects imported before
   are skipped. A latest file that was edited outside the app after its last saved version becomes one more version.
 - `pnpm flowboard export --to <folder>` writes every project in this layout, e.g. to open them in other BPMN tools or as
-  a plain-file backup. The target folder must be empty or not exist yet. Soft-deleted projects are included, so the
-  backup is complete: their `project.json` has a `deletedAt` date, and importing such a folder adds the project as
-  deleted again (hidden until an admin restores it).
+  a plain-file copy of the diagrams. The target folder must be empty or not exist yet. It contains each project's
+  name, creation date and every version (with author and note); soft-deleted projects are included, with a
+  `deletedAt` date in their `project.json`. It does **not** contain owners, sharing (members, visibility, share
+  links, invitations), AI chats or the activity log, so it is not a full backup: back up the database for that.
+  Importing such a folder adds the projects without an owner, so the first user who signed in becomes their owner
+  (deleted ones included); a project with `deletedAt` is imported as deleted (hidden until an admin restores it),
+  and a `deletedAt` that is not a valid date still counts as deleted.
 
 The commands use the same settings as the server (`.env`, environment variables). For deleted projects
 (`pnpm flowboard deleted`, `restore`, `purge`) see [Deleting projects](#deleting-projects).
@@ -468,8 +472,11 @@ pnpm flowboard purge <project-id> --yes   # delete a soft-deleted project perman
 
 A restored project gets a `project.restore` entry in its activity log; open editors need a reload. Invitations that
 were pending when the project was deleted still apply after a restore. The time a project spent deleted does not
-count towards the chat idle cleanup: the restore moves each chat's last activity forward by that time. Without the CLI, the same in SQL (SQLite or
-Postgres):
+count towards the chat idle cleanup: the restore moves each chat's last activity forward by that time.
+
+Prefer the CLI. If you must use SQL (SQLite or Postgres), note that the plain `UPDATE` below skips that shift and
+writes no `project.restore` entry: chats last used more than `CHAT_IDLE_DAYS` ago are then removed by the next idle
+cleanup (within minutes).
 
 ```sql
 SELECT id, name, deleted_at, deleted_by FROM documents WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC;

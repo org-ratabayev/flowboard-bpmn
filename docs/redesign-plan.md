@@ -326,9 +326,11 @@ Notes:
   content, `document_id` empty so a new project with the same id starts clean). Soft-deleted projects are purged
   only explicitly (`pnpm flowboard purge <id> --yes`). Deleting is browser-only: requests with an access token get
   403 for both kinds (maintainer decision). The chat idle cleanup skips conversations of soft-deleted projects, and a
-  restore moves their last activity forward by the time spent deleted. `pnpm flowboard export` includes
-  soft-deleted projects (`deletedAt` in project.json), and importing such a folder keeps them deleted, so an export
-  is a complete backup. A save that arrives after a delete or purge answers 404.
+  restore moves their last activity forward by the time spent deleted (the CLI does this; a plain SQL restore
+  does not). `pnpm flowboard export` includes soft-deleted projects (`deletedAt` in project.json; importing keeps
+  them deleted, and an invalid `deletedAt` also imports as deleted). The export holds names, dates and versions
+  only, not owners, sharing, links, invitations, chats or the log; on import the first user becomes the owner
+  (`adoptUnowned`), deleted projects included. A save that arrives after a delete or purge answers 404.
 - XML size limit: 20 MB per version (same as today's live limit), configurable.
 - `pending_grants` turn into `document_grants` when a user with that email signs in for the first time.
 

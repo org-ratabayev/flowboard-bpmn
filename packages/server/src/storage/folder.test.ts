@@ -159,6 +159,22 @@ describe('folder import and export', () => {
     }
   });
 
+  it('imports a project whose deletedAt is not a valid date as deleted, never as live', async () => {
+    const dir = path.join(tmp, 'odd');
+    const bad: Array<[string, unknown]> = [['not-a-date', 'yesterday'], ['empty-string', ''], ['a-number', 12345], ['an-object', {}]];
+    for (const [id, deletedAt] of bad) {
+      await fs.mkdir(path.join(dir, id), { recursive: true });
+      await fs.writeFile(path.join(dir, id, 'project.json'), JSON.stringify({ name: id, deletedAt }));
+      await fs.writeFile(path.join(dir, id, `${id}.bpmn`), xml(id));
+    }
+    const before = Date.now();
+    const results = await importFromFolder(store, dir);
+    expect(results.map((r) => [r.id, r.status, r.deleted])).toEqual(bad.map(([id]) => [id, 'imported', true]).sort());
+    expect(await store.listProjects()).toEqual([]);
+    for (const p of await store.listDeletedProjects()) expect(Date.parse(p.deletedAt)).toBeGreaterThanOrEqual(before - 1000);
+    expect((await store.listDeletedProjects()).map((p) => p.id).sort()).toEqual(bad.map(([id]) => id).sort());
+  });
+
   it('refuses to export into a folder that is not empty', async () => {
     await expect(exportToFolder(store, path.join(tmp, 'data'))).rejects.toThrow('not empty');
   });
