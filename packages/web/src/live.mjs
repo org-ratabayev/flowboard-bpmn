@@ -84,10 +84,11 @@ export function createLive({ api, modeler, avatarsEl, onHello, onDoc, onSaved, o
     });
     // the owner changed our role: the editor adapts without a reload
     source.addEventListener('access', (e) => onAccess?.(JSON.parse(e.data).role));
-    source.addEventListener('access-revoked', () => {
+    // access removed, or the project deleted ({ reason: 'deleted' })
+    source.addEventListener('access-revoked', (e) => {
       source.close(); // no reconnecting: the project is gone for us
       live.connected = false;
-      onRevoked?.();
+      onRevoked?.(e.data ? JSON.parse(e.data) : {});
     });
     source.addEventListener('saved', (e) => {
       const data = JSON.parse(e.data);

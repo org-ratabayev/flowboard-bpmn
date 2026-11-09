@@ -23,6 +23,8 @@ function describe(entry) {
     case 'invite.create': return `invited ${esc(d.email)} to ${ROLE_VERB[d.role]}`;
     case 'invite.remove': return `cancelled the invitation for ${esc(d.email)}`;
     case 'invite.accept': return 'accepted an invitation';
+    case 'project.delete': return 'deleted the project';
+    case 'project.restore': return 'restored the project (server admin)';
     default: return esc(entry.action);
   }
 }

@@ -1,5 +1,5 @@
 // Public entry of @flowboard/server: the server factory, the configuration helpers, the provider
-// types for custom LLM providers, and the storage functions used by the import/export CLI.
+// types for custom LLM providers, and the storage functions used by the CLI (import/export, deleted projects).
 
 export { createServer, type BpmnServer } from './server.ts';
 export {
@@ -17,6 +17,7 @@ export {
   exportToFolder,
   importFromFolder,
   openStore,
+  type DeletedProject,
   type DocumentStore,
   type ImportResult,
   type ProjectSummary,

@@ -1,6 +1,6 @@
 // /api…  The JSON API below the authentication of server.ts: the signed-in user, access tokens,
-// users, share links, and the project routes (role check first, then access, live, history,
-// download and the chat, which is dispatched to chat/agentRoutes.ts).
+// users, share links, and the project routes (role check first, then delete, access, live,
+// history, download and the chat, which is dispatched to chat/agentRoutes.ts).
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { cleanDisplayName, type Auth, type Identity } from './auth/index.ts';
@@ -171,6 +171,38 @@ async function handleTokens(ctx: ApiContext, req: IncomingMessage, res: ServerRe
   return send(res, 405, { error: 'Method not allowed' });
 }
 
+/**
+ * DELETE /api/projects/:id  (owner only, browser session only: access tokens get 403)
+ *   no body                                   soft delete: hidden everywhere, kept in the database
+ *   { permanent: true, confirmName: <name> }  permanent delete; confirmName must repeat the project name
+ * Everyone with the project open is told at once (`access` event); running chat turns stop.
+ */
+async function deleteProject(
+  ctx: ApiContext,
+  req: IncomingMessage,
+  res: ServerResponse,
+  id: string,
+  allowed: (minimum: Role, ownerOnly?: string) => boolean
+): Promise<void> {
+  if (!allowed('owner', 'Only the owner can delete this project')) return;
+  // deleting is for people in the app: a script or a leaked token cannot remove projects
+  if (ctx.viaToken) return send(res, 403, { error: 'Delete projects in the app, not with a token' });
+  const body = await readJson(req, 4096);
+  if (body.permanent !== undefined && typeof body.permanent !== 'boolean') return send(res, 400, { error: 'permanent must be true or false' });
+  let result;
+  if (body.permanent) {
+    const name = (await ctx.store.readMeta(id)).name || id;
+    if (body.confirmName !== name) return send(res, 400, { error: 'Type the project name exactly to delete it permanently' });
+    result = await ctx.store.purgeProject(id, ctx.identity.id);
+  } else {
+    result = await ctx.store.deleteProject(id, ctx.identity.id);
+  }
+  if (!result) return send(res, 404, { error: 'Project not found' });
+  await ctx.events.publish('access', id); // open editors get the "deleted" notice
+  for (const conversationId of result.stopConversations) await ctx.events.publish('chat', conversationId);
+  return send(res, 204, '');
+}
+
 /** Handles /api/projects/…; `parts` is the decoded path split at slashes. */
 export async function handleApi(
   ctx: ApiContext,
@@ -197,6 +229,7 @@ export async function handleApi(
     const result = await ctx.access.joinByLink(String(token ?? ''), identity.id);
     if (result === 'invalid') return send(res, 404, { error: 'This share link is not valid. It may have been revoked.' });
     if (result === 'expired') return send(res, 410, { error: 'This share link has expired. Ask the owner for a new one.' });
+    if (result === 'deleted') return send(res, 410, { error: 'The project this link points to was deleted by its owner.', reason: 'deleted' });
     await ctx.events.publish('access', result.documentId); // the user's open tabs on the project get the raised role
     return send(res, 200, { projectId: result.documentId, role: result.role });
   }
@@ -216,11 +249,13 @@ export async function handleApi(
   // Every project route needs at least the viewer role; without it the project does not exist for this user.
   const role = isProjectId(id) ? await ctx.access.roleOf(identity.id, id) : 'none';
   if (role === 'none') return send(res, 404, { error: 'Project not found' });
-  const allowed = (minimum: Role): boolean => {
+  const allowed = (minimum: Role, ownerOnly = 'Only the owner can change who has access'): boolean => {
     if (atLeast(role, minimum)) return true;
-    send(res, 403, { error: minimum === 'owner' ? 'Only the owner can change who has access' : 'You can view this project but not change it' });
+    send(res, 403, { error: minimum === 'owner' ? ownerOnly : 'You can view this project but not change it' });
     return false;
   };
+
+  if (!sub && req.method === 'DELETE') return deleteProject(ctx, req, res, id, allowed);
 
   if (!sub) {
     if (req.method === 'GET') {
@@ -251,6 +286,7 @@ export async function handleApi(
         baseVersion: body.baseVersion,
         force: !!body.force
       });
+      if ('gone' in result) return send(res, 404, { error: 'Project not found' }); // deleted while the request was on its way
       if ('conflict' in result) return send(res, 409, { error: 'conflict', latest: result.conflict });
       const { saved } = result;
       const rev = live.onSaved(id, { xml: body.xml, version: saved.version, author: identity.name, clientId: body.client });

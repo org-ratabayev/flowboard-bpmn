@@ -92,5 +92,49 @@ describe('flowboard CLI', () => {
 
   it('prints usage for unknown commands', async () => {
     await assert.rejects(cli(['frobnicate'], {}), (err) => err.code === 1 && /Usage:/.test(err.stderr));
+    await assert.rejects(cli(['restore'], {}), (err) => err.code === 1 && /Usage:/.test(err.stderr));
+  });
+
+  it('lists, restores and purges deleted projects of a running server', async () => {
+    // the CLI reaches the server's database file, so this test always uses SQLite
+    const server = await startServer({ DATABASE_URL: '', STORAGE: 'sqlite', APP_SECRET: '' });
+    try {
+      const env = { BPMN_DIR: server.dataDir };
+      const owner = server.as('Olivia');
+      const id = (await owner('POST', '/api/projects', { name: 'Recover me', xml: diagram('Recover') })).body.id;
+      await server.grant(id, 'Eddie', 'editor', 'Olivia');
+      assert.equal((await owner('DELETE', `/api/projects/${id}`)).status, 204);
+      assert.equal((await server.as('Eddie')('GET', `/api/projects/${id}`)).status, 404);
+
+      const listed = await cli(['deleted'], env);
+      assert.match(listed.stdout, /^1 deleted project\(s\)/);
+      assert.match(listed.stdout, new RegExp(`${id}  "Recover me"  deleted \\S+ by Olivia, owner Olivia, 1 versions`));
+
+      // a backup with export keeps it, marked as deleted
+      const out = path.join(server.dataDir, '..', 'export');
+      const exported = await cli(['export', '--to', out], env);
+      assert.match(exported.stdout, /Exported 1 project\(s\) .*, 1 of them deleted/);
+      assert.match(exported.stdout, new RegExp(`${id} \\(1 versions, deleted\\)`));
+      const meta = JSON.parse(await fs.readFile(path.join(out, id, 'project.json'), 'utf8'));
+      assert.equal(meta.name, 'Recover me');
+      assert.ok(!Number.isNaN(Date.parse(meta.deletedAt)));
+
+      assert.match((await cli(['restore', id], env)).stdout, new RegExp(`Restored ${id}`));
+      assert.equal((await server.as('Eddie')('GET', `/api/projects/${id}`)).body.role, 'editor');
+      assert.ok((await server.as('Eddie')('GET', '/api/projects')).body.some((p) => p.id === id));
+      const log = (await owner('GET', `/api/projects/${id}/access/log`)).body.map((e) => e.action);
+      assert.deepEqual(log.slice(0, 2), ['project.restore', 'project.delete']);
+      await assert.rejects(cli(['restore', id], env), (err) => err.code === 1 && /No deleted project/.test(err.stderr));
+
+      // purging needs --yes, and only works on deleted projects
+      await assert.rejects(cli(['purge', id, '--yes'], env), (err) => err.code === 1 && /only deleted projects/.test(err.stderr));
+      await owner('DELETE', `/api/projects/${id}`);
+      await assert.rejects(cli(['purge', id], env), (err) => err.code === 1 && /--yes/.test(err.stderr));
+      assert.match((await cli(['purge', id, '--yes'], env)).stdout, new RegExp(`Purged ${id}`));
+      assert.match((await cli(['deleted'], env)).stdout, /^0 deleted project\(s\)/);
+      await assert.rejects(cli(['restore', id], env), /No deleted project/);
+    } finally {
+      await server.stop();
+    }
   });
 });

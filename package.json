@@ -12,11 +12,11 @@
     "build": "vite build packages/web --logLevel warn",
     "start": "vite build packages/web --logLevel warn && node --disable-warning=ExperimentalWarning apps/standalone/src/main.ts",
     "flowboard": "node --disable-warning=ExperimentalWarning apps/standalone/src/cli.ts",
-    "test": "vitest run && vite build packages/web --logLevel warn && node --test test/*.test.mjs && node test/browser/chat-flow.mjs",
+    "test": "vitest run && vite build packages/web --logLevel warn && node --test test/*.test.mjs && node test/browser/chat-flow.mjs && node test/browser/project-delete.mjs",
     "test:unit": "vitest run",
     "test:api": "vite build packages/web --logLevel warn && node --test test/*.test.mjs",
     "test:api:postgres": "vite build packages/web --logLevel warn && TEST_STORAGE=postgres node --test test/*.test.mjs",
-    "test:browser": "vite build packages/web --logLevel warn && node test/browser/chat-flow.mjs",
+    "test:browser": "vite build packages/web --logLevel warn && node test/browser/chat-flow.mjs && node test/browser/project-delete.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "license-list": "node scripts/license-list.mjs"
   },

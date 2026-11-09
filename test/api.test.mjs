@@ -129,9 +129,11 @@ describe('projects', () => {
     assert.deepEqual(empty.body, { id: 'order-flow-2', name: 'Renamed' });
   });
 
-  it('does not support deleting', async () => {
-    assert.equal((await req('DELETE', '/api/projects/order-flow')).status, 405);
+  it('deletes single projects only (see delete.test.mjs), never the whole collection', async () => {
     assert.equal((await req('DELETE', '/api/projects')).status, 405);
+    // Tester owns order-flow-2; a wrong name keeps it
+    assert.equal((await req('DELETE', '/api/projects/order-flow-2', { permanent: true, confirmName: 'not the name' })).status, 400);
+    assert.equal((await req('GET', '/api/projects/order-flow-2')).status, 200);
   });
 });
 

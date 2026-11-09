@@ -1,7 +1,7 @@
 // Small "something changed, look again" signals between server instances. Each event carries only
 // an id; listeners re-read the database for the details.
 //
-//   access  access to document <id> changed: live connections re-check their role
+//   access  access to document <id> changed (or it was deleted): live connections re-check their role
 //   chat    conversation <id> changed: a tool result arrived, or a turn was cancelled or deleted
 //
 // Events reach the listeners of this instance at once and, with Postgres, the other instances

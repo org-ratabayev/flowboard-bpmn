@@ -8,7 +8,8 @@ Both are checked by `test/docs.test.mjs`.
 
 Flowboard: a bpmn.io (bpmn-js) BPMN editor with a server. Projects with full, immutable version history in SQLite
 or Postgres; sign-in (`dev`, `trusted-headers`, `oidc`) and personal access tokens; per-project sharing (owner /
-editor / viewer, share links, email invites, audit log); live collaboration over SSE with live role changes; an AI
+editor / viewer, share links, email invites, audit log); owner-only project delete (soft by default, admin restore
+via the CLI, optional permanent delete); live collaboration over SSE with live role changes; an AI
 assistant that edits the open diagram through editor tools, as proposals the user keeps or undoes, on a server-side
 agent loop with configurable providers (Anthropic, OpenAI-compatible). An MCP server and an MCP client in chat are
 planned.
@@ -32,11 +33,11 @@ environment variables or an `APP_CONFIG` module at runtime, not from the repo.
 | `tsconfig.json` | Type-check only (`noEmit`, `erasableSyntaxOnly`) |
 | `vitest.config.ts` | Unit tests: `packages/*/src/**/*.test.ts`, browser modules `packages/web/src/**/*.test.mjs` (jsdom) |
 | `apps/standalone/src/main.ts` | Default entry (`pnpm start`): loads `.env`, env, `APP_CONFIG`; calls `createServer` |
-| `apps/standalone/src/cli.ts` | `pnpm flowboard import/export` (project folders) |
+| `apps/standalone/src/cli.ts` | `pnpm flowboard import/export` (project folders), `deleted` / `restore` / `purge` (soft-deleted projects) |
 | `packages/server/` | The server as a library (`@flowboard/server`, entry `packages/server/src/index.ts`) |
 | `packages/web/` | Browser app (`@flowboard/web`): HTML pages + `packages/web/src/`, built by Vite into dist/ (not committed) |
 | `test/` | Black-box HTTP API tests (`node:test`), one server process per file |
-| `test/browser/` | Headless Chrome check of the chat and the editor controls (zoom buttons, no Copy link) in the real editor (`chat-flow.mjs`), driven over CDP (`cdp.mjs`, no dependencies) |
+| `test/browser/` | Headless Chrome checks driven over CDP (`cdp.mjs`, no dependencies): the chat and the editor controls (zoom buttons, no Copy link) in the real editor (`chat-flow.mjs`), the Delete dialog and the live "deleted" notice (`project-delete.mjs`) |
 | `scripts/license-list.mjs` | Regenerates `THIRD_PARTY_LICENSES.md` |
 | `docker-compose.yml` | Optional local Postgres (tests don't need it) |
 | `.env.example` | Every env var with a comment; copy to `.env` (git-ignored) |
@@ -46,15 +47,15 @@ Server (`packages/server/src/`):
 | Path | What |
 |---|---|
 | `packages/server/src/server.ts` | `createServer`: CSRF Origin check, authentication (token or session), top-level routing (`/auth`, pages, static, `/api/llm`, `/api`), startup wiring, error handler |
-| `packages/server/src/routes.ts` | `/api/me`, `/api/tokens`, `/api/users`, `/api/share/join`, `/api/projects/...` (role check, access, live, history, download, chat dispatch) |
+| `packages/server/src/routes.ts` | `/api/me`, `/api/tokens`, `/api/users`, `/api/share/join`, `/api/projects/...` (role check, delete, access, live, history, download, chat dispatch) |
 | `packages/server/src/http.ts` | `send`, `readJson`, `HttpError`, `PAGE_CSP`, `serveStatic` |
 | `packages/server/src/config.ts` | zod `configSchema`, `configFromEnv` (env var mapping), `mergeConfig`, `loadConfigFromEnv`, `defineConfig` |
 | `packages/server/src/appSecret.ts` | `APP_SECRET` resolution (generated file only for SQLite) |
-| `packages/server/src/events.ts` | Event bus with topics `access`, `chat`; in-process or Postgres LISTEN/NOTIFY (one channel per topic); payload is an id only |
-| `packages/server/src/live.ts` | Live rooms: presence, cursors, shared unsaved diagram (in memory), live role refresh |
+| `packages/server/src/events.ts` | Event bus with topics `access` (also sent when a project is deleted), `chat`; in-process or Postgres LISTEN/NOTIFY (one channel per topic); payload is an id only |
+| `packages/server/src/live.ts` | Live rooms: presence, cursors, shared unsaved diagram (in memory), live role refresh, closing rooms of deleted projects |
 | `packages/server/src/bpmn.ts` | `looksLikeBpmn`, `EMPTY_DIAGRAM` |
 | `packages/server/src/auth/` | `index.ts` (`createAuth`: dev, trusted-headers), `oidc.ts`, `common.ts` (sessions), `authStore.ts` (users, sessions), `tokenStore.ts` (PATs), `requestChecks.ts` (cookies, `isSameOrigin`, proxy address matching) |
-| `packages/server/src/storage/` | `db.ts` (`Db` abstraction), `sqliteDb.ts`, `postgresDb.ts`, `migrations.ts`, `sqlStore.ts` (documents, versions), `accessStore.ts` (roles, grants, links, invites, audit), `folder.ts` (import/export), `index.ts` (`openStore`), `testBackends.ts` |
+| `packages/server/src/storage/` | `db.ts` (`Db` abstraction), `sqliteDb.ts`, `postgresDb.ts`, `migrations.ts`, `sqlStore.ts` (documents, versions, soft delete / purge / restore), `accessStore.ts` (roles, grants, links, invites, audit), `folder.ts` (import/export), `index.ts` (`openStore`), `testBackends.ts` |
 | `packages/server/src/llm/` | `types.ts` (`LlmProvider`, content blocks, `Credentials`), `catalog.ts` (provider list, credential sources), `anthropic.ts`, `openai.ts`, `keyStore.ts` (encrypted personal keys), `routes.ts` (`/api/llm`, model lists, `redact`), `sse.ts`, `claudeCodeCli.ts` (dev-only Claude Code CLI provider) |
 | `packages/server/src/chat/` | AI chat: `agentLoop.ts` (one turn: model calls, tool calls, role re-check), `agentRoutes.ts` (chat routes, limits), `conversationStore.ts` (conversations, messages, turns, tool calls, rate limit), `toolSpecs.ts` (browser tools, `toolsForRole`, `toolRefusal`), `attachments.ts`, `systemPrompt.ts` with `packages/server/src/chat/prompts/bpmn-assistant.md`, `history.ts` (provider-valid history), `signals.ts` (wake the instance running a turn) |
 
@@ -69,8 +70,8 @@ former CLI-only chat (chatService.ts, claudeCode.ts, the old POST /api/projects/
 Web (`packages/web/`): pages `index.html` (project list), `editor.html`, `login.html`, `settings.html`, `join.html`
 (share link), each loading one module from `packages/web/src/` (`index.mjs`, `editor.mjs`, `login.mjs`,
 `settings.mjs`, `join.mjs`). Shared modules: `session.mjs` (signed-in user, 401 handling), `live.mjs`
-(collaboration client), `share.mjs` (Share dialog), `readOnly.mjs` (viewer mode), `zoomControls.mjs` (zoom
-buttons), `lint-config.mjs` (bpmnlint rules), `styles.css`.
+(collaboration client), `share.mjs` (Share dialog), `deleteDialog.mjs` (Delete dialog on the project list),
+`readOnly.mjs` (viewer mode), `zoomControls.mjs` (zoom buttons), `lint-config.mjs` (bpmnlint rules), `styles.css`.
 New pages must be added to `packages/web/vite.config.ts` and routed in `packages/server/src/server.ts`.
 Chat panel (`packages/web/src/chat/`, loaded by `editor.mjs`): `panel.mjs` (conversations, model picker, streamed
 reply, Keep / Undo), `stream.mjs` (event stream of a POST), `tools.mjs` (runs tool calls), `edit.mjs` (edit tools
@@ -92,12 +93,13 @@ Node 22.18+ and Corepack (`corepack enable` once, or prefix commands with `corep
 | `pnpm build` | Build the web app into packages/web/dist/ | - |
 | `pnpm start` | Build, then run the server on port 3000 | `.env` optional; data in `BPMN_DIR` |
 | `pnpm flowboard import --from <dir>` / `export --to <dir>` | Project folder import/export | Same settings as the server |
+| `pnpm flowboard deleted` / `restore <id>` / `purge <id> --yes` | List, restore or purge soft-deleted projects (admin) | Same settings as the server |
 | `pnpm typecheck` | `tsc` over `packages/*/src`, `apps/*/src` and `vitest.config.ts` | - |
 | `pnpm test` | Unit tests, web build, API tests on SQLite, then the browser check | Chrome optional |
 | `pnpm test:unit` | vitest only (store, auth and llm suites run on SQLite and PGlite; browser modules in jsdom) | - |
 | `pnpm test:api` | Build + API tests (SQLite) | Free local ports |
 | `pnpm test:api:postgres` | Build + API tests with `TEST_STORAGE=postgres` (PGlite, no Docker) | Free local ports |
-| `pnpm test:browser` | Build + the chat in headless Chrome (`test/browser/chat-flow.mjs`); without Chrome it prints `BROWSER TESTS SKIPPED` and passes | Chrome or Chromium (`CHROME_BIN`) |
+| `pnpm test:browser` | Build + headless Chrome checks (`test/browser/chat-flow.mjs`, `test/browser/project-delete.mjs`); without Chrome it prints `BROWSER TESTS SKIPPED` and passes | Chrome or Chromium (`CHROME_BIN`) |
 | `pnpm license-list` | Regenerate `THIRD_PARTY_LICENSES.md` after dependency changes | Installed dependencies |
 
 Single file: `node --test test/sharing.test.mjs` (after `pnpm build`), `pnpm test:unit packages/server/src/config.test.ts`.
@@ -165,10 +167,15 @@ Single file: `node --test test/sharing.test.mjs` (after `pnpm build`), `pnpm tes
 - **Authentication everywhere** except `/assets`, `/licenses`, `/favicon.ico`, `/login.html` and the sign-in
   routes. A request with an `Authorization` header is judged by that header only (no fallback to the cookie).
 - **Roles on the server, for every request:** `roleOf` before any project route; `none` answers 404 (ids cannot be
-  probed); minimum role per action. The chat agent loop re-reads the role before every model call and every tool
+  probed); minimum role per action. A soft-deleted project (`documents.deleted_at`) is `none` for everyone: every
+  new query that reaches documents (lists, links, invites, saves) must filter `deleted_at IS NULL`; housekeeping
+  must not remove data of deleted projects (an admin may restore them). Only the owner
+  deletes, in the app only; permanent delete needs the name repeated (`confirmName`). The chat agent loop
+  re-reads the role before every model call and every tool
   execution (`toolsForRole`, `toolRefusal` in `packages/server/src/chat/toolSpecs.ts`). Never trust the browser.
-- **Access tokens** cannot create, list or revoke tokens, read or change AI keys, list provider models, or join
-  share links (`viaToken` checks in `packages/server/src/llm/routes.ts`, `packages/server/src/chat/agentRoutes.ts`). On token
+- **Access tokens** cannot create, list or revoke tokens, read or change AI keys, list provider models, join
+  share links or delete projects, soft or permanent (`viaToken` checks in `packages/server/src/routes.ts`,
+  `packages/server/src/llm/routes.ts`, `packages/server/src/chat/agentRoutes.ts`). On token
   requests the chat never sends the proxy's sign-in token to `identity` providers (the proxy may have signed in
   someone else), and turns that need a personal key are refused.
 - **Personal AI keys** are encrypted (AES-256-GCM, key from `APP_SECRET` + browser keyring cookie), never stored

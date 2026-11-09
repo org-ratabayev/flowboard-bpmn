@@ -322,11 +322,15 @@ export function createConversationStore(db: Db) {
       return db.transaction((q) => failStale(q, staleBefore));
     },
 
-    /** Deletes conversations without activity since `before` (never one with a running turn). */
+    /**
+     * Deletes conversations without activity since `before` (never one with a running turn). Chats of
+     * soft-deleted projects are kept, so an admin restore brings them back complete.
+     */
     deleteIdle(before: string): Promise<number> {
       return db.transaction(async (q) => (await q.run(
         `DELETE FROM chat_conversations WHERE updated_at < $1
-         AND NOT EXISTS (SELECT 1 FROM chat_turns t WHERE t.conversation_id = chat_conversations.id AND t.status = 'running')`,
+         AND NOT EXISTS (SELECT 1 FROM chat_turns t WHERE t.conversation_id = chat_conversations.id AND t.status = 'running')
+         AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = chat_conversations.document_id AND d.deleted_at IS NOT NULL)`,
         [before]
       )).changes);
     }

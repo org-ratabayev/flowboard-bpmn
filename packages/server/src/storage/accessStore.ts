@@ -2,7 +2,8 @@
 //   owner   the document's owner_id
 //   editor  a grant with role 'editor'
 //   viewer  a grant with role 'viewer', or visibility 'everyone' (every signed-in user)
-//   none    otherwise; routes answer 404 so document ids cannot be probed
+//   none    otherwise, and for every user once the document is deleted (deleted_at set); routes
+//           answer 404 so document ids cannot be probed
 //
 // Grants come from the owner directly, from a share link (revoking the link removes them) or
 // from an email invitation accepted at the invitee's first sign-in. Every change is logged.
@@ -105,7 +106,7 @@ async function setGrant(
   role: GrantRole,
   options: { grantedBy: string | null; linkId: string | null; onlyRaise: boolean }
 ): Promise<{ previous: Role } | undefined> {
-  const doc = await q.get<{ owner_id: string | null }>('SELECT owner_id FROM documents WHERE id = $1', [documentId]);
+  const doc = await q.get<{ owner_id: string | null }>('SELECT owner_id FROM documents WHERE id = $1 AND deleted_at IS NULL', [documentId]);
   if (!doc || doc.owner_id === userId) return undefined;
   const existing = await q.get<{ role: GrantRole; link_id: string | null }>(
     'SELECT role, link_id FROM document_grants WHERE document_id = $1 AND user_id = $2', [documentId, userId]
@@ -125,18 +126,23 @@ async function setGrant(
   return { previous: existing?.role ?? 'none' };
 }
 
-/** Turns invitations for the user's email into grants; called when a user signs in (in that transaction). */
+/**
+ * Turns invitations for the user's email into grants; called when a user signs in (in that transaction).
+ * Invitations to deleted projects stay pending, so they still apply if an admin restores the project.
+ */
 export async function acceptInvites(q: Queryable, user: { id: string; email: string | null }): Promise<number> {
   const email = normalizeEmail(user.email);
   if (!email) return 0;
   const invites = await q.all<{ document_id: string; role: GrantRole; granted_by: string | null }>(
-    'SELECT document_id, role, granted_by FROM pending_grants WHERE email = $1', [email]
+    `SELECT p.document_id, p.role, p.granted_by FROM pending_grants p JOIN documents d ON d.id = p.document_id
+     WHERE p.email = $1 AND d.deleted_at IS NULL`,
+    [email]
   );
   for (const invite of invites) {
     const changed = await setGrant(q, invite.document_id, user.id, invite.role, { grantedBy: invite.granted_by, linkId: null, onlyRaise: true });
     await audit(q, { documentId: invite.document_id, actorId: user.id, action: 'invite.accept', details: { email, role: invite.role, changed: !!changed } });
+    await q.run('DELETE FROM pending_grants WHERE document_id = $1 AND email = $2', [invite.document_id, email]);
   }
-  await q.run('DELETE FROM pending_grants WHERE email = $1', [email]);
   return invites.length;
 }
 
@@ -148,13 +154,13 @@ export function createAccessStore(db: Db) {
   return {
     adoptUnowned: () => db.transaction(adoptUnowned),
 
-    /** The user's role on a document; 'none' also when the document does not exist. */
+    /** The user's role on a document; 'none' also when the document does not exist or was deleted. */
     async roleOf(userId: string, documentId: string): Promise<Role> {
       const row = await db.read((q) =>
         q.get<{ role: Role }>(
           `SELECT ${ROLE_SQL} AS role FROM documents d
            LEFT JOIN document_grants g ON g.document_id = d.id AND g.user_id = $1
-           WHERE d.id = $2`,
+           WHERE d.id = $2 AND d.deleted_at IS NULL`,
           [userId, documentId]
         )
       );
@@ -269,14 +275,18 @@ export function createAccessStore(db: Db) {
     /**
      * Joins the link's project with its role (never lowering access the user already has).
      * Expiry only stops new people from joining; revoking the link removes those who joined.
+     * A valid link to a deleted project answers 'deleted' (its holder may learn that it is gone).
      */
-    joinByLink(token: string, userId: string): Promise<{ documentId: string; role: Role } | 'invalid' | 'expired'> {
+    joinByLink(token: string, userId: string): Promise<{ documentId: string; role: Role } | 'invalid' | 'expired' | 'deleted'> {
       if (!LINK_RE.test(token)) return Promise.resolve('invalid');
       return db.transaction(async (q) => {
-        const link = await q.get<{ id: string; document_id: string; role: GrantRole; expires_at: unknown }>(
-          'SELECT id, document_id, role, expires_at FROM share_links WHERE token_hash = $1 AND revoked_at IS NULL', [hash(token)]
+        const link = await q.get<{ id: string; document_id: string; role: GrantRole; expires_at: unknown; deleted_at: unknown }>(
+          `SELECT l.id, l.document_id, l.role, l.expires_at, d.deleted_at FROM share_links l JOIN documents d ON d.id = l.document_id
+           WHERE l.token_hash = $1 AND l.revoked_at IS NULL`,
+          [hash(token)]
         );
         if (!link) return 'invalid' as const;
+        if (link.deleted_at) return 'deleted' as const;
         if (link.expires_at && toIso(link.expires_at)! <= new Date().toISOString()) return 'expired' as const;
         const changed = await setGrant(q, link.document_id, userId, link.role, { grantedBy: null, linkId: link.id, onlyRaise: true });
         if (changed) await audit(q, { documentId: link.document_id, actorId: userId, action: 'link.join', details: { linkId: link.id, role: link.role, previous: changed.previous } });

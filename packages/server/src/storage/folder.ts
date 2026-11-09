@@ -1,8 +1,12 @@
 // Import from and export to the plain-folder layout used before the database:
 //   <dir>/<project-id>/<project-id>.bpmn      latest version (open it with any BPMN tool)
-//   <dir>/<project-id>/project.json           { name, createdAt }
+//   <dir>/<project-id>/project.json           { name, createdAt, deletedAt? }
 //   <dir>/<project-id>/history/<version>.bpmn every saved version
 //   <dir>/<project-id>/history/log.jsonl      one line per version: version, at, author, note, size
+//
+// Exports hold names, dates and versions (not owners, sharing, chats or the log) and include
+// soft-deleted projects (with `deletedAt`); importing such a folder adds the project as deleted
+// again (an admin can restore it).
 
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -13,6 +17,8 @@ export interface ImportResult {
   id: string;
   status: 'imported' | 'skipped' | 'would import';
   versions: number;
+  /** The folder holds a project that was deleted when it was exported. */
+  deleted: boolean;
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -36,7 +42,7 @@ export async function readProjectFolder(dir: string): Promise<ImportedProject | 
   const latestFile = path.join(dir, `${id}.bpmn`);
   if (!isProjectId(id) || !(await exists(latestFile))) return null;
 
-  let meta: { name?: string; createdAt?: string } = {};
+  let meta: { name?: string; createdAt?: string; deletedAt?: unknown } = {};
   try {
     meta = JSON.parse(await fsp.readFile(path.join(dir, 'project.json'), 'utf8'));
   } catch { /* no metadata: use the folder name */ }
@@ -79,7 +85,11 @@ export async function readProjectFolder(dir: string): Promise<ImportedProject | 
     versions.push({ name, at, xml: latest, author: null, note: versions.length ? 'Imported (latest file)' : 'Imported' });
   }
 
-  return { id, name: meta.name || id, createdAt: meta.createdAt || null, importKey: `folder:${id}`, versions };
+  // fails closed: any deletedAt that is set but not a valid date still imports the project as deleted (as of now)
+  const marked = meta.deletedAt !== undefined && meta.deletedAt !== null;
+  const parsed = typeof meta.deletedAt === 'string' ? Date.parse(meta.deletedAt) : NaN;
+  const deletedAt = !marked ? null : new Date(Number.isNaN(parsed) ? Date.now() : parsed).toISOString();
+  return { id, name: meta.name || id, createdAt: meta.createdAt || null, importKey: `folder:${id}`, versions, deletedAt };
 }
 
 /** Imports every project folder in `dir`. Projects imported before are skipped. */
@@ -95,26 +105,38 @@ export async function importFromFolder(store: DocumentStore, dir: string, { dryR
     const project = await readProjectFolder(path.join(dir, e.name));
     if (!project) continue;
     if (dryRun) {
-      results.push({ folder: e.name, id: project.id, status: 'would import', versions: project.versions.length });
+      results.push({ folder: e.name, id: project.id, status: 'would import', versions: project.versions.length, deleted: !!project.deletedAt });
       continue;
     }
     const { id, status } = await store.importProject(project);
-    results.push({ folder: e.name, id, status, versions: project.versions.length });
+    results.push({ folder: e.name, id, status, versions: project.versions.length, deleted: !!project.deletedAt });
   }
   return results;
 }
 
-/** Writes every project in the folder layout to `dir`, which must not exist yet or be empty. */
-export async function exportToFolder(store: DocumentStore, dir: string): Promise<{ id: string; versions: number }[]> {
+/**
+ * Writes every project in the folder layout to `dir`, which must not exist yet or be empty.
+ * Soft-deleted projects are included, marked with `deletedAt` in project.json.
+ */
+export async function exportToFolder(store: DocumentStore, dir: string): Promise<{ id: string; versions: number; deleted: boolean }[]> {
   if (await exists(dir)) {
     if ((await fsp.readdir(dir)).length) throw new Error(`Export folder is not empty: ${dir}`);
   }
+  const deleted = await store.listDeletedProjects();
+  const projects = [
+    ...(await store.listProjects()).map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, deletedAt: null as string | null })),
+    ...await Promise.all(deleted.map(async (p) => ({ id: p.id, name: p.name, createdAt: (await store.readMeta(p.id)).createdAt, deletedAt: p.deletedAt })))
+  ];
   const results = [];
-  for (const project of await store.listProjects()) {
+  for (const project of projects) {
     const projectDir = path.join(dir, project.id);
     const historyDir = path.join(projectDir, 'history');
     await fsp.mkdir(historyDir, { recursive: true });
-    const meta = project.createdAt ? { name: project.name, createdAt: project.createdAt } : { name: project.name };
+    const meta = {
+      name: project.name,
+      ...(project.createdAt ? { createdAt: project.createdAt } : {}),
+      ...(project.deletedAt ? { deletedAt: project.deletedAt } : {})
+    };
     await fsp.writeFile(path.join(projectDir, 'project.json'), JSON.stringify(meta, null, 2));
 
     const versions = (await store.listVersions(project.id)).reverse();
@@ -127,7 +149,7 @@ export async function exportToFolder(store: DocumentStore, dir: string): Promise
     }
     await fsp.writeFile(path.join(historyDir, 'log.jsonl'), log.length ? log.join('\n') + '\n' : '');
     await fsp.writeFile(path.join(projectDir, `${project.id}.bpmn`), versions.length ? latest : await store.readLatest(project.id));
-    results.push({ id: project.id, versions: versions.length });
+    results.push({ id: project.id, versions: versions.length, deleted: !!project.deletedAt });
   }
   return results;
 }

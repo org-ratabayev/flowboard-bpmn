@@ -227,6 +227,21 @@ export function createLiveHub() {
       return told;
     },
 
+    /**
+     * The project was deleted: every connection gets `access-revoked` with reason 'deleted' and is
+     * closed, and the room (with any unsaved shared draft) is dropped. Returns how many were told.
+     */
+    projectDeleted(projectId: string): number {
+      const room = rooms.get(projectId);
+      if (!room) return 0;
+      rooms.delete(projectId);
+      for (const client of room.clients.values()) {
+        sse(client.res, 'access-revoked', { reason: 'deleted' });
+        client.res.end();
+      }
+      return room.clients.size;
+    },
+
     /** Latest shared diagram of a project, if it has unsaved live changes. */
     liveDoc(projectId: string): { xml: string; rev: number; dirty: boolean } | null {
       const room = rooms.get(projectId);
