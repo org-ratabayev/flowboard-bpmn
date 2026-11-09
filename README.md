@@ -118,6 +118,8 @@ The commands use the same settings as the server (`.env`, environment variables)
 - **Linting**: toggle the issues button bottom-left of the canvas; checks the bpmnlint "recommended" rules.
 - **Token simulation**: toggle top-left of the canvas (or press `T`) to animate tokens through the process.
 - **Minimap**: toggle top-right of the canvas.
+- **Zoom controls**: zoom in, zoom out and fit-to-view buttons bottom-left of the canvas (for everyone, viewers
+  included). Share links live in the Share dialog.
 - **More ▾** menu: download `.bpmn`, export SVG / PNG, auto-layout the diagram.
   Files without diagram layout (pure process XML) get a layout generated automatically when opened.
 

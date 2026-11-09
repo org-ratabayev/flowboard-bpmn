@@ -69,7 +69,7 @@ former CLI-only chat (chatService.ts, claudeCode.ts, the old POST /api/projects/
 Web (`packages/web/`): pages `index.html` (project list), `editor.html`, `login.html`, `settings.html`, `join.html`
 (share link), each loading one module from `packages/web/src/` (`index.mjs`, `editor.mjs`, `login.mjs`,
 `settings.mjs`, `join.mjs`). Shared modules: `session.mjs` (signed-in user, 401 handling), `live.mjs`
-(collaboration client), `share.mjs` (Share dialog), `readOnly.mjs` (viewer mode), `lint-config.mjs` (bpmnlint rules),
+(collaboration client), `share.mjs` (Share dialog), `readOnly.mjs` (viewer mode), `zoomControls.mjs` (zoom buttons), `lint-config.mjs` (bpmnlint rules),
 `styles.css`. New pages must be added to `packages/web/vite.config.ts` and routed in `packages/server/src/server.ts`.
 Chat panel (`packages/web/src/chat/`, loaded by `editor.mjs`): `panel.mjs` (conversations, model picker, streamed
 reply, Keep / Undo), `stream.mjs` (event stream of a POST), `tools.mjs` (runs tool calls), `edit.mjs` (edit tools

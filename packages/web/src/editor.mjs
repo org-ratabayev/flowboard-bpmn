@@ -20,6 +20,7 @@ import { layoutProcess } from 'bpmn-auto-layout';
 import lintConfig from './lint-config.mjs';
 import { me } from './session.mjs';
 import { createReadOnly } from './readOnly.mjs';
+import { createZoomControls } from './zoomControls.mjs';
 import { openShareDialog } from './share.mjs';
 import { createLive } from './live.mjs';
 import { createChatPanel } from './chat/panel.mjs';
@@ -55,6 +56,7 @@ const modeler = new BpmnJS({
 
 modeler.on('linting.toggle', ({ active }) => prefs.set('lint', active));
 
+createZoomControls(modeler.get('canvas'), document.getElementById('canvas'));
 const readOnly = createReadOnly(modeler, { propertiesEl: document.getElementById('properties') });
 
 const state = {
@@ -649,11 +651,6 @@ $('shareBtn').onclick = async () => {
   });
 };
 
-$('copyLink').onclick = async () => {
-  const url = location.href.split('#')[0];
-  try { await navigator.clipboard.writeText(url); toast('Link copied'); }
-  catch { prompt('Copy this link:', url); }
-};
 $('historyBtn').onclick = () => { if (togglePanel('history')) renderHistory(); };
 $('closeHistory').onclick = () => togglePanel('history', null, false);
 $('propertiesBtn').onclick = () => togglePanel('properties', 'properties');

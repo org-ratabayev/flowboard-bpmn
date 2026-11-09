@@ -136,6 +136,45 @@ const lastReply = () => page.eval(`[...document.querySelectorAll('.chat-msg.assi
 
 // ---- the flow -------------------------------------------------------------------------------
 
+describe('Editor chrome', () => {
+  const zoomLevel = () => page.eval(`parseFloat(document.querySelector('.viewport').getAttribute('transform').replace('matrix(', ''))`);
+  const clickZoom = (action) => page.eval(`document.querySelector('[data-zoom="${action}"]').click()`);
+
+  it('has no Copy link button (links live in the Share dialog)', async () => {
+    assert.equal(await page.eval(`!!document.getElementById('copyLink')`), false);
+    assert.equal(await page.eval(`!![...document.querySelectorAll('button')].find((b) => /copy link/i.test(b.textContent))`), false);
+    assert.equal(await page.eval(`!!document.getElementById('shareBtn')`), true);
+  });
+
+  it('zooms in, out and fits the diagram with the buttons bottom-left of the canvas', async () => {
+    assert.equal(await page.eval(`document.querySelectorAll('.zoom-controls button').length`), 3);
+    assert.equal(await page.eval(`[...document.querySelectorAll('.zoom-controls button')].every((b) => b.title && b.getAttribute('aria-label'))`), true);
+    const placed = await page.eval(`(() => {
+      const z = document.querySelector('.zoom-controls').getBoundingClientRect();
+      const c = document.getElementById('canvas').getBoundingClientRect();
+      const w = document.querySelector('.bjs-powered-by').getBoundingClientRect();
+      return { nearLeft: z.left - c.left < 40, nearBottom: c.bottom - z.bottom < 40, clearOfWatermark: z.right <= w.left || z.bottom <= w.top };
+    })()`);
+    assert.deepEqual(placed, { nearLeft: true, nearBottom: true, clearOfWatermark: true });
+
+    await clickZoom('fit');
+    await clickZoom('fit'); // the first one may still follow a panel resize
+    const fitted = await zoomLevel();
+    await clickZoom('in');
+    const zoomedIn = await zoomLevel();
+    assert.ok(zoomedIn > fitted, `zoom in: ${zoomedIn} > ${fitted}`);
+    await clickZoom('out');
+    await clickZoom('out');
+    const zoomedOut = await zoomLevel();
+    assert.ok(zoomedOut < fitted, `zoom out: ${zoomedOut} < ${fitted}`);
+    await clickZoom('fit');
+    const refitted = await zoomLevel();
+    assert.ok(Math.abs(refitted - fitted) < 1e-3, `fit returns to the fitted level (${fitted} vs ${refitted})`);
+    // the watermark is still there
+    assert.equal(await page.eval(`!!document.querySelector('.bjs-powered-by')`), true);
+  });
+});
+
 describe('AI chat in the editor', () => {
   it('runs the edit tools through modeling and shows one proposal for the turn; Undo reverts it', async () => {
     script.push(
