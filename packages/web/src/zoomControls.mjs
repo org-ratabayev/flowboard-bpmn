@@ -5,6 +5,9 @@
 export const ZOOM_STEP = 1.2;
 export const ZOOM_MIN = 0.2; // same bounds as bpmn-js wheel zoom
 export const ZOOM_MAX = 4;
+// Below this canvas width the group no longer fits beside the bottom-centre controls (lint button,
+// simulation speed) and moves above them instead.
+export const COMPACT_BELOW = 520;
 
 /**
  * The zoom level one step in (`direction` 1) or out (-1), kept within the bounds. Monotonic: a level
@@ -67,5 +70,8 @@ export function createZoomControls(canvas, parent) {
     group.append(button);
   }
   parent.append(group);
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(([entry]) => group.classList.toggle('compact', entry.contentRect.width < COMPACT_BELOW)).observe(parent);
+  }
   return group;
 }

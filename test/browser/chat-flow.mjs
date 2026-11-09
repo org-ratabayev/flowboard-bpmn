@@ -163,11 +163,6 @@ describe('Editor chrome', () => {
     assert.ok(b.left >= -1 && b.right >= -1 && b.top >= -1 && b.bottom >= -1, `${what}: the diagram lies inside the canvas ${JSON.stringify(b)}`);
     assert.ok(Math.abs(b.left - b.right) < 2 && Math.abs(b.top - b.bottom) < 2, `${what}: the diagram is centred ${JSON.stringify(b)}`);
   };
-  const noOverlap = (selector) => page.eval(`(() => {
-    const z = document.querySelector('.zoom-controls').getBoundingClientRect();
-    const o = document.querySelector('${selector}').getBoundingClientRect();
-    return z.right <= o.left || z.left >= o.right || z.bottom <= o.top || z.top >= o.bottom;
-  })()`);
 
   it('zooms in, out and fits the diagram with the buttons bottom-left of the canvas', async () => {
     assert.equal(await page.eval(`document.querySelectorAll('.zoom-controls button').length`), 3);
@@ -188,35 +183,77 @@ describe('Editor chrome', () => {
     assert.ok(Math.abs((await zoomLevel()) - fitted) < 1e-3, 'fit returns to the fitted level');
   });
 
+  // panels: put chat and properties in the wanted state with their own buttons
+  const setPanel = async (panel, button, open) => {
+    if ((await page.eval(`document.getElementById('${panel}').classList.contains('show')`)) !== open) {
+      await page.eval(`document.getElementById('${button}').click()`);
+    }
+    await settle();
+  };
+
   it('measures the canvas again after a panel opens or closes or the window changes', async () => {
-    await page.eval(`document.getElementById('closeChat').click()`);
-    await settle();
+    await setPanel('chat', 'chatBtn', false);
+    await setPanel('properties', 'propertiesBtn', false);
     await clickZoom('fit');
-    await assertFitted('fit after closing the chat');
-    await page.eval(`document.getElementById('propertiesBtn').click()`);
-    await settle();
+    await assertFitted('fit after closing the panels');
+    await setPanel('properties', 'propertiesBtn', true);
     await clickZoom('fit');
     await assertFitted('fit after opening Properties');
-    await page.eval(`document.getElementById('propertiesBtn').click()`);
-    await settle();
     await viewport(900, 700);
     await clickZoom('fit');
     await assertFitted('fit after resizing the window');
     await viewport(1400, 900);
     await clickZoom('fit');
     await assertFitted('fit after enlarging the window');
+    await setPanel('chat', 'chatBtn', true); // the chat tests below expect it open
   });
 
-  it('keeps the buttons clear of the palette and the bpmn.io watermark at laptop window sizes', async () => {
-    for (const [w, h] of [[1280, 800], [1366, 768], [1400, 900], [1280, 850]]) {
+  // Nothing may overlap the zoom group: palette, watermark, lint button, simulation controls and notifications.
+  const OTHERS = ['.djs-palette', '.bjs-powered-by', '.bjsl-button', '.bts-notifications', '.bts-set-animation-speed', '.bts-palette', '.bts-toggle-mode'];
+  const overlaps = () => page.eval(`(() => {
+    const z = document.querySelector('.zoom-controls').getBoundingClientRect();
+    const hit = [];
+    for (const sel of ${JSON.stringify(OTHERS)}) {
+      for (const el of document.querySelectorAll(sel)) {
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height || getComputedStyle(el).visibility === 'hidden') continue;
+        if (!(z.right <= r.left || z.left >= r.right || z.bottom <= r.top || z.top >= r.bottom)) hit.push(sel);
+      }
+    }
+    const c = document.getElementById('canvas').getBoundingClientRect();
+    const inside = z.left >= c.left && z.right <= c.right && z.top >= c.top && z.bottom <= c.bottom;
+    const dbg = (q) => { const e = document.querySelector(q); const r = e && e.getBoundingClientRect(); return r && [r.left, r.top, r.right, r.bottom].map(Math.round); };
+    return { hit, inside, dbg: hit.length ? { z: dbg('.zoom-controls'), n: dbg('.bts-notifications') } : undefined };
+  })()`);
+
+  it('keeps the zoom buttons clear of everything else at laptop, panel-heavy and phone sizes', async () => {
+    const sizes = [[1280, 800, false], [1366, 768, false], [1400, 900, false], [900, 700, true], [390, 844, false]];
+    for (const [w, h, panels] of sizes) {
       await viewport(w, h);
+      if (panels) { await setPanel('chat', 'chatBtn', true); await setPanel('properties', 'propertiesBtn', true); }
       await clickZoom('fit');
-      assert.equal(await noOverlap('.djs-palette'), true, `palette at ${w}x${h}`);
-      assert.equal(await noOverlap('.bjs-powered-by'), true, `watermark at ${w}x${h}`);
-      assert.equal(await page.eval(`document.querySelector('.zoom-controls').getBoundingClientRect().left - document.getElementById('canvas').getBoundingClientRect().left < 200`), true, 'bottom-left');
-      assert.equal(await page.eval(`document.getElementById('canvas').getBoundingClientRect().bottom - document.querySelector('.zoom-controls').getBoundingClientRect().bottom < 40`), true, 'bottom');
+      let result = await overlaps();
+      assert.deepEqual(result, { hit: [], inside: true }, `${w}x${h}${panels ? ' with panels' : ''}`);
+      // token simulation: its notifications, speed control and palette appear
+      await page.eval(`document.querySelector('.bts-toggle-mode').click()`);
+      await page.waitFor(`document.querySelector('.bts-notifications')`, { what: 'the simulation notifications area' });
+      // the library shows notifications only briefly (2 s); put one of its own markup in, wide enough to be typical
+      await page.eval(`(() => {
+        const n = document.createElement('div');
+        n.className = 'bts-notification info';
+        n.innerHTML = '<span class="bts-icon"></span><span class="bts-text">Play Simulation: tokens are moving through the process</span>';
+        document.querySelector('.bts-notifications').append(n);
+      })()`);
+      await settle();
+      result = await overlaps();
+      assert.deepEqual(result, { hit: [], inside: true }, `${w}x${h} in simulation`);
+      await page.eval(`document.querySelector('.bts-notifications').replaceChildren()`);
+      await page.eval(`document.querySelector('.bts-toggle-mode').click()`);
+      await settle();
     }
     await viewport(1400, 900);
+    await setPanel('properties', 'propertiesBtn', true);
+    await setPanel('chat', 'chatBtn', true);
   });
 });
 
