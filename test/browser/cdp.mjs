@@ -108,7 +108,8 @@ export async function launch(bin) {
       ws.close();
       child.kill();
       await new Promise((r) => child.once('exit', r));
-      await fsp.rm(profile, { recursive: true, force: true });
+      // Chrome's helper processes may still write to the profile for a moment after it exits
+      await fsp.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   };
 }
