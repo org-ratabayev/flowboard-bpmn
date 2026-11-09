@@ -36,7 +36,7 @@ environment variables or an `APP_CONFIG` module at runtime, not from the repo.
 | `packages/server/` | The server as a library (`@flowboard/server`, entry `packages/server/src/index.ts`) |
 | `packages/web/` | Browser app (`@flowboard/web`): HTML pages + `packages/web/src/`, built by Vite into dist/ (not committed) |
 | `test/` | Black-box HTTP API tests (`node:test`), one server process per file |
-| `test/browser/` | Headless Chrome check of the chat in the real editor (`chat-flow.mjs`), driven over CDP (`cdp.mjs`, no dependencies) |
+| `test/browser/` | Headless Chrome check of the chat and the editor controls (zoom buttons, no Copy link) in the real editor (`chat-flow.mjs`), driven over CDP (`cdp.mjs`, no dependencies) |
 | `scripts/license-list.mjs` | Regenerates `THIRD_PARTY_LICENSES.md` |
 | `docker-compose.yml` | Optional local Postgres (tests don't need it) |
 | `.env.example` | Every env var with a comment; copy to `.env` (git-ignored) |
@@ -69,8 +69,9 @@ former CLI-only chat (chatService.ts, claudeCode.ts, the old POST /api/projects/
 Web (`packages/web/`): pages `index.html` (project list), `editor.html`, `login.html`, `settings.html`, `join.html`
 (share link), each loading one module from `packages/web/src/` (`index.mjs`, `editor.mjs`, `login.mjs`,
 `settings.mjs`, `join.mjs`). Shared modules: `session.mjs` (signed-in user, 401 handling), `live.mjs`
-(collaboration client), `share.mjs` (Share dialog), `readOnly.mjs` (viewer mode), `lint-config.mjs` (bpmnlint rules),
-`styles.css`. New pages must be added to `packages/web/vite.config.ts` and routed in `packages/server/src/server.ts`.
+(collaboration client), `share.mjs` (Share dialog), `readOnly.mjs` (viewer mode), `zoomControls.mjs` (zoom
+buttons), `lint-config.mjs` (bpmnlint rules), `styles.css`.
+New pages must be added to `packages/web/vite.config.ts` and routed in `packages/server/src/server.ts`.
 Chat panel (`packages/web/src/chat/`, loaded by `editor.mjs`): `panel.mjs` (conversations, model picker, streamed
 reply, Keep / Undo), `stream.mjs` (event stream of a POST), `tools.mjs` (runs tool calls), `edit.mjs` (edit tools
 via `modeling`), `inspect.mjs` (read tools), `validate.mjs` (checks `bpmn_replace_xml`), `proposal.mjs` (Keep /
