@@ -6,6 +6,7 @@ import { createAuthStore } from '../auth/authStore.ts';
 import { createConversationStore } from '../chat/conversationStore.ts';
 import type { Identity } from '../auth/index.ts';
 import { createAccessStore, type AccessStore } from './accessStore.ts';
+import { toIso } from './db.ts';
 import type { DocumentStore } from './sqlStore.ts';
 import { backends } from './testBackends.ts';
 
@@ -124,6 +125,39 @@ describe.each(backends)('$name project deletion', (backend) => {
     // the id is free again, and a new project with it starts with a clean log
     expect(await store.createProject('Doomed', xml('new'), 'Owner', owner.id)).toBe(id);
     expect((await access.log(id)).map((e) => e.action)).toEqual(['project.create']);
+  });
+
+  it('keeps chats of a deleted project through the idle sweep, and the deleted time does not count after a restore', async () => {
+    const chat = createConversationStore(store.db);
+    const day = 864e5;
+    const ago = (days: number) => new Date(Date.now() - days * day).toISOString();
+    // an idle chat (no running turn) last used 40 days ago, on a project deleted 35 days ago
+    await store.db.transaction(async (q) => {
+      await q.run(`UPDATE chat_turns SET status = 'done'`);
+      await q.run('UPDATE chat_conversations SET updated_at = $1', [ago(40)]);
+    });
+    await store.deleteProject(id, owner.id);
+    await store.db.transaction((q) => q.run('UPDATE documents SET deleted_at = $2 WHERE id = $1', [id, ago(35)]));
+    expect(await chat.deleteIdle(ago(30))).toBe(0);
+    expect((await rowsOf(store, id)).conversations).toBe(1);
+
+    // restored: last activity moves forward by the 35 days, so it is 5 days idle and survives a 30-day sweep
+    await store.restoreProject(id);
+    const [{ updated_at }] = await store.db.read((q) => q.all<{ updated_at: unknown }>('SELECT updated_at FROM chat_conversations'));
+    const idleDays = (Date.now() - Date.parse(toIso(updated_at)!)) / day;
+    expect(idleDays).toBeGreaterThan(4.9);
+    expect(idleDays).toBeLessThan(5.1);
+    expect(await chat.deleteIdle(ago(30))).toBe(0);
+    // the normal idle cleanup applies again to the live project
+    expect(await chat.deleteIdle(ago(1))).toBe(1);
+  });
+
+  it('refuses a save that arrives after a delete or purge', async () => {
+    await store.deleteProject(id, owner.id);
+    expect(await store.saveVersion(id, xml('late'), { force: true })).toEqual({ gone: true });
+    expect((await rowsOf(store, id)).versions).toBe(2);
+    await store.purgeProject(id, null, { onlyDeleted: true, via: 'cli' });
+    expect(await store.saveVersion(id, xml('later'), { force: true })).toEqual({ gone: true });
   });
 
   it('purges from the admin CLI only projects that were deleted', async () => {

@@ -2,8 +2,8 @@
 // Ids and version names keep the format of the earlier folder storage, so links stay valid.
 //
 // Deleting is soft by default: deleted_at hides the project from every route (roleOf answers
-// 'none'), the list, the CLI export and share links, while all its data stays until an admin
-// restores it or someone purges it. Purging removes the project and everything keyed to it;
+// 'none'), the list and share links, while all its data stays (also its chats, and in exports,
+// marked as deleted) until an admin restores it or someone purges it. Purging removes the project and everything keyed to it;
 // the audit log keeps one entry saying that it happened, without the content.
 
 import { EMPTY_DIAGRAM } from '../bpmn.ts';
@@ -59,7 +59,9 @@ export interface SaveOptions {
 
 export type SaveResult =
   | { saved: { version: string; at: string } }
-  | { conflict: VersionInfo | null };
+  | { conflict: VersionInfo | null }
+  /** The project was deleted (or never existed). */
+  | { gone: true };
 
 export interface ImportedProject {
   /** Preferred id; a free one is derived from it when it is taken. */
@@ -70,6 +72,8 @@ export interface ImportedProject {
   importKey: string;
   /** Oldest first. */
   versions: Array<{ name: string; at: string; xml: string; author: string | null; note: string | null }>;
+  /** Set for a project that was soft-deleted when it was exported: it is imported as deleted. */
+  deletedAt?: string | null;
 }
 
 export interface DeletedProject {
@@ -160,7 +164,7 @@ export function createSqlStore(db: Db) {
       return db.read(async (q) => Number((await q.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM documents'))!.n));
     },
 
-    /** Projects the user can see, with their role; without a user, every project (exports, CLI). Never deleted ones. */
+    /** Projects the user can see, with their role; without a user, every project (exports, CLI). Never deleted ones (see listDeletedProjects). */
     listProjects(userId?: string): Promise<ProjectSummary[]> {
       return db.read(async (q) => {
         const rows = await q.all<{
@@ -252,7 +256,9 @@ export function createSqlStore(db: Db) {
     /** Saves a new version unless `baseVersion` is outdated (checked atomically) and `force` is not set. */
     saveVersion(id: string, xml: string, options: SaveOptions = {}): Promise<SaveResult> {
       return db.transaction(async (q) => {
-        if (db.dialect === 'postgres') await q.get('SELECT id FROM documents WHERE id = $1 FOR UPDATE', [id]);
+        // a delete or purge that committed first wins (on Postgres the row lock orders them)
+        const lock = db.dialect === 'postgres' ? ' FOR UPDATE' : '';
+        if (!(await q.get(`SELECT id FROM documents WHERE id = $1 AND deleted_at IS NULL${lock}`, [id]))) return { gone: true as const };
         const latest = await latestVersion(q, id);
         if (!options.force && options.baseVersion !== (latest?.info.version ?? null)) return { conflict: latest?.info ?? null };
         return { saved: await insertVersion(q, id, xml, options) };
@@ -345,12 +351,26 @@ export function createSqlStore(db: Db) {
       );
     },
 
-    /** Undoes a soft delete (admin CLI): the project comes back with its sharing as before. False when it is not deleted. */
+    /**
+     * Undoes a soft delete (admin CLI): the project comes back with its sharing and chats as before.
+     * The time it spent deleted does not count towards the chat idle cleanup: each conversation's
+     * last activity moves forward by that time (keeping their order). False when it is not deleted.
+     */
     restoreProject(id: string): Promise<boolean> {
       return db.transaction(async (q) => {
-        const restored = (await q.run('UPDATE documents SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL', [id])).changes > 0;
-        if (restored) await audit(q, { documentId: id, actorId: null, action: 'project.restore', details: { via: 'cli' } });
-        return restored;
+        const lock = db.dialect === 'postgres' ? ' FOR UPDATE' : '';
+        const doc = await q.get<{ deleted_at: unknown }>(`SELECT deleted_at FROM documents WHERE id = $1 AND deleted_at IS NOT NULL${lock}`, [id]);
+        if (!doc) return false;
+        const now = Date.now();
+        const deletedFor = Math.max(0, now - Date.parse(toIso(doc.deleted_at)!));
+        const conversations = await q.all<{ id: string; updated_at: unknown }>('SELECT id, updated_at FROM chat_conversations WHERE document_id = $1', [id]);
+        for (const c of conversations) {
+          const shifted = Math.min(now, Date.parse(toIso(c.updated_at)!) + deletedFor);
+          await q.run('UPDATE chat_conversations SET updated_at = $2 WHERE id = $1', [c.id, new Date(shifted).toISOString()]);
+        }
+        await q.run('UPDATE documents SET deleted_at = NULL, deleted_by = NULL WHERE id = $1', [id]);
+        await audit(q, { documentId: id, actorId: null, action: 'project.restore', details: { via: 'cli' } });
+        return true;
       });
     },
 
@@ -362,8 +382,8 @@ export function createSqlStore(db: Db) {
         const id = await freeId(q, isProjectId(project.id) ? project.id : slugify(project.name));
         const latestAt = project.versions.at(-1)?.at ?? project.createdAt ?? new Date().toISOString();
         await q.run(
-          'INSERT INTO documents (id, name, created_at, updated_at, import_key) VALUES ($1, $2, $3, $4, $5)',
-          [id, project.name || id, project.createdAt, latestAt, project.importKey]
+          'INSERT INTO documents (id, name, created_at, updated_at, import_key, deleted_at) VALUES ($1, $2, $3, $4, $5, $6)',
+          [id, project.name || id, project.createdAt, latestAt, project.importKey, project.deletedAt ?? null]
         );
         let seq = 0;
         for (const v of project.versions) {

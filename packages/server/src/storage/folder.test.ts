@@ -66,10 +66,10 @@ describe('folder import and export', () => {
   it('imports project folders with their history and skips everything else', async () => {
     const results = await importFromFolder(store, path.join(tmp, 'data'));
     expect(results).toEqual([
-      { folder: 'bare', id: 'bare', status: 'imported', versions: 1 },
-      { folder: 'edited', id: 'edited', status: 'imported', versions: 2 },
-      { folder: 'no-log', id: 'no-log', status: 'imported', versions: 1 },
-      { folder: 'order-flow', id: 'order-flow', status: 'imported', versions: 2 }
+      { folder: 'bare', id: 'bare', status: 'imported', versions: 1, deleted: false },
+      { folder: 'edited', id: 'edited', status: 'imported', versions: 2, deleted: false },
+      { folder: 'no-log', id: 'no-log', status: 'imported', versions: 1, deleted: false },
+      { folder: 'order-flow', id: 'order-flow', status: 'imported', versions: 2, deleted: false }
     ]);
 
     expect(await store.readMeta('order-flow')).toEqual({ name: 'Order Flow', createdAt: '2026-01-01T10:00:00.000Z' });
@@ -123,6 +123,34 @@ describe('folder import and export', () => {
     const second = await backends[0].open();
     try {
       await importFromFolder(second.store, out1);
+      const out2 = path.join(tmp, 'out2');
+      await exportToFolder(second.store, out2);
+      expect(await readTree(out2)).toEqual(tree1);
+    } finally {
+      await second.cleanup();
+    }
+  });
+
+  it('exports soft-deleted projects marked as deleted, and imports them as deleted again', async () => {
+    await importFromFolder(store, path.join(tmp, 'data'));
+    await store.deleteProject('order-flow', null);
+    const out1 = path.join(tmp, 'out1');
+    const exported = await exportToFolder(store, out1);
+    expect(exported.filter((r) => r.deleted)).toEqual([{ id: 'order-flow', versions: 2, deleted: true }]);
+    expect(exported).toHaveLength(4);
+    const tree1 = await readTree(out1);
+    const meta = JSON.parse(tree1['order-flow/project.json']);
+    expect(meta).toMatchObject({ name: 'Order Flow', createdAt: '2026-01-01T10:00:00.000Z' });
+    expect(meta.deletedAt).toBe((await store.listDeletedProjects())[0].deletedAt);
+    expect(tree1[`order-flow/history/${V2}.bpmn`]).toBe(xml('two'));
+
+    const second = await backends[0].open();
+    try {
+      const imported = await importFromFolder(second.store, out1);
+      expect(imported.find((r) => r.id === 'order-flow')).toMatchObject({ status: 'imported', deleted: true });
+      expect(await second.store.hasProject('order-flow')).toBe(false);
+      expect((await second.store.listDeletedProjects()).map((p) => [p.id, p.deletedAt, p.versionCount])).toEqual([['order-flow', meta.deletedAt, 2]]);
+      expect((await second.store.listProjects()).map((p) => p.id).sort()).toEqual(['bare', 'edited', 'no-log']);
       const out2 = path.join(tmp, 'out2');
       await exportToFolder(second.store, out2);
       expect(await readTree(out2)).toEqual(tree1);

@@ -110,6 +110,15 @@ describe('flowboard CLI', () => {
       assert.match(listed.stdout, /^1 deleted project\(s\)/);
       assert.match(listed.stdout, new RegExp(`${id}  "Recover me"  deleted \\S+ by Olivia, owner Olivia, 1 versions`));
 
+      // a backup with export keeps it, marked as deleted
+      const out = path.join(server.dataDir, '..', 'export');
+      const exported = await cli(['export', '--to', out], env);
+      assert.match(exported.stdout, /Exported 1 project\(s\) .*, 1 of them deleted/);
+      assert.match(exported.stdout, new RegExp(`${id} \\(1 versions, deleted\\)`));
+      const meta = JSON.parse(await fs.readFile(path.join(out, id, 'project.json'), 'utf8'));
+      assert.equal(meta.name, 'Recover me');
+      assert.ok(!Number.isNaN(Date.parse(meta.deletedAt)));
+
       assert.match((await cli(['restore', id], env)).stdout, new RegExp(`Restored ${id}`));
       assert.equal((await server.as('Eddie')('GET', `/api/projects/${id}`)).body.role, 'editor');
       assert.ok((await server.as('Eddie')('GET', '/api/projects')).body.some((p) => p.id === id));

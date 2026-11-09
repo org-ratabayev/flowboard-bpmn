@@ -93,7 +93,9 @@ bpmn-diagrams/
 - `pnpm flowboard import --from <folder> [--dry-run]` imports project folders at any time. Projects imported before
   are skipped. A latest file that was edited outside the app after its last saved version becomes one more version.
 - `pnpm flowboard export --to <folder>` writes every project in this layout, e.g. to open them in other BPMN tools or as
-  a plain-file backup. The target folder must be empty or not exist yet.
+  a plain-file backup. The target folder must be empty or not exist yet. Soft-deleted projects are included, so the
+  backup is complete: their `project.json` has a `deletedAt` date, and importing such a folder adds the project as
+  deleted again (hidden until an admin restores it).
 
 The commands use the same settings as the server (`.env`, environment variables). For deleted projects
 (`pnpm flowboard deleted`, `restore`, `purge`) see [Deleting projects](#deleting-projects).
@@ -274,7 +276,8 @@ an edit tool is refused even when the model calls it. A role change applies with
 **Limits.** One running turn per conversation (`409` otherwise), at most 8 running turns per user (`429`), at most
 `CHAT_TURNS_PER_MINUTE` (10) messages per user and minute across all instances (`429` with `code: 'rate-limited'`
 and `Retry-After`), messages up to 64 KB, at most 20 model calls per turn, tool results up to 2 MB. Closing the request (the tab) cancels the turn and
-the provider request. Conversations without activity for `CHAT_IDLE_DAYS` (30) are deleted.
+the provider request. Conversations without activity for `CHAT_IDLE_DAYS` (30) are deleted, except those of a
+deleted project (kept for a restore; see [Deleting projects](#deleting-projects)).
 
 **Keys.** For a provider with personal keys, the key is decrypted for the one turn with the browser's keyring cookie,
 used for the provider requests of that turn and never stored, logged or returned. So personal keys work only from the
@@ -374,7 +377,7 @@ curl -H "Authorization: Bearer fb_pat_…" https://bpmn.example.com/api/projects
 
 A token acts as the user who created it. Only a hash is stored; tokens can expire (30/90/365 days or never) and be
 revoked at any time, and the list shows when each was last used. Tokens cannot create, list or revoke tokens: that
-needs a browser session, so a leaked token cannot hide or extend itself. When a request carries an `Authorization`
+needs a browser session, so a leaked token cannot hide or extend itself. Tokens cannot delete projects either. When a request carries an `Authorization`
 header, only that header counts: an invalid token is refused even if the browser also has a session cookie. A proxy
 in front of the app must therefore pass `Authorization` through unchanged and not add its own.
 
@@ -428,14 +431,15 @@ database connection per instance; `PG_LISTEN=off` disables it).
 
 ### Deleting projects
 
-Only the owner can delete a project: **Delete** on the project list opens a dialog (editors and viewers do not see
-it, and the server refuses them).
+Only the owner can delete a project, and only in the app: **Delete** on the project list opens a dialog (editors and
+viewers do not see it, and the server refuses them). Access tokens cannot delete projects.
 
 - **Delete project** (the default) is a *soft delete*. The project disappears for its owner and for everyone it is
   shared with: from the list, every project route and API call, share links, invitations, the live editor, the AI
   chat and access tokens; for all of them it behaves like a project that does not exist ("Project not found").
-  Everything stays in the database, and a server admin can restore it (below). There is no Trash in the app, and
-  soft-deleted projects are never purged automatically.
+  Everything stays in the database, including the AI chats (the idle cleanup of `CHAT_IDLE_DAYS` skips them), and
+  a server admin can restore it (below). There is no Trash in the app, and soft-deleted projects are never purged
+  automatically. `pnpm flowboard export` includes them, marked as deleted.
 - **Delete permanently instead** (a secondary option in the same dialog) needs the project name typed in. It removes
   the project with every version, member, share link, invitation and AI chat (conversations, messages, turns, tool
   calls) and its activity log. It cannot be undone, not even by an admin.
@@ -450,7 +454,8 @@ it, and the server refuses them).
 
 API: `DELETE /api/projects/:id` (owner only, `204`) soft-deletes. With the JSON body
 `{ "permanent": true, "confirmName": "<project name>" }` it deletes permanently; `confirmName` must match the name
-exactly, otherwise `400`. Access tokens may soft-delete but not delete permanently (`403`).
+exactly, otherwise `400`. Both need a browser session: requests with an access token get `403`. A save that
+arrives after the delete answers `404`.
 
 **Restoring (server admins).** On the machine with the server's settings (`.env` or environment, so the CLI opens
 the same database):
@@ -462,7 +467,8 @@ pnpm flowboard purge <project-id> --yes   # delete a soft-deleted project perman
 ```
 
 A restored project gets a `project.restore` entry in its activity log; open editors need a reload. Invitations that
-were pending when the project was deleted still apply after a restore. Without the CLI, the same in SQL (SQLite or
+were pending when the project was deleted still apply after a restore. The time a project spent deleted does not
+count towards the chat idle cleanup: the restore moves each chat's last activity forward by that time. Without the CLI, the same in SQL (SQLite or
 Postgres):
 
 ```sql

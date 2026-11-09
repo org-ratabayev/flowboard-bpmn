@@ -57,13 +57,14 @@ try {
     const from = path.resolve(values.from!);
     const results = await importFromFolder(store, from, { dryRun: values['dry-run'] });
     console.log(`${values['dry-run'] ? 'Dry run: ' : ''}importing from ${from} into ${target}`);
-    for (const r of results) console.log(`  ${r.status.padEnd(12)} ${r.folder} → ${r.id} (${r.versions} versions)`);
+    for (const r of results) console.log(`  ${r.status.padEnd(12)} ${r.folder} → ${r.id} (${r.versions} versions${r.deleted ? ', deleted' : ''})`);
     if (!results.length) console.log('  No project folders found.');
   } else if (command === 'export') {
     const to = path.resolve(values.to!);
     const results = await exportToFolder(store, to);
-    console.log(`Exported ${results.length} project(s) from ${target} to ${to}`);
-    for (const r of results) console.log(`  ${r.id} (${r.versions} versions)`);
+    const deleted = results.filter((r) => r.deleted).length;
+    console.log(`Exported ${results.length} project(s) from ${target} to ${to}${deleted ? `, ${deleted} of them deleted (marked in project.json)` : ''}`);
+    for (const r of results) console.log(`  ${r.id} (${r.versions} versions${r.deleted ? ', deleted' : ''})`);
   } else if (command === 'deleted') {
     const deleted = await store.listDeletedProjects();
     console.log(`${deleted.length} deleted project(s) in ${target}`);

@@ -167,11 +167,13 @@ Single file: `node --test test/sharing.test.mjs` (after `pnpm build`), `pnpm tes
   routes. A request with an `Authorization` header is judged by that header only (no fallback to the cookie).
 - **Roles on the server, for every request:** `roleOf` before any project route; `none` answers 404 (ids cannot be
   probed); minimum role per action. A soft-deleted project (`documents.deleted_at`) is `none` for everyone: every
-  new query that reaches documents (lists, links, invites, exports) must filter `deleted_at IS NULL`. Only the owner
-  deletes; permanent delete needs the name repeated (`confirmName`) and is refused for access tokens. The chat agent loop re-reads the role before every model call and every tool
+  new query that reaches documents (lists, links, invites, saves) must filter `deleted_at IS NULL`; housekeeping
+  must not remove data of deleted projects (an admin may restore them). Only the owner
+  deletes, in the app only; permanent delete needs the name repeated (`confirmName`). The chat agent loop
+  re-reads the role before every model call and every tool
   execution (`toolsForRole`, `toolRefusal` in `packages/server/src/chat/toolSpecs.ts`). Never trust the browser.
 - **Access tokens** cannot create, list or revoke tokens, read or change AI keys, list provider models, join
-  share links or delete a project permanently (`viaToken` checks in `packages/server/src/routes.ts`,
+  share links or delete projects, soft or permanent (`viaToken` checks in `packages/server/src/routes.ts`,
   `packages/server/src/llm/routes.ts`, `packages/server/src/chat/agentRoutes.ts`). On token
   requests the chat never sends the proxy's sign-in token to `identity` providers (the proxy may have signed in
   someone else), and turns that need a personal key are refused.

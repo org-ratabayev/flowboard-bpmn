@@ -316,15 +316,19 @@ Notes:
 - `documents.owner_id` is the only owner. Ownership transfer is a later feature (out of scope).
 - **Deletion (decided 2026-11-09, replaces the earlier "purge after 30 days, Trash view" idea).** Only the owner
   deletes. The default is a soft delete: `deleted_at` / `deleted_by` are set and the project behaves like a
-  non-existent one everywhere (list, every project route, share links, invitations, live, chat, access tokens, CLI
-  export), but all its rows stay. There is no Trash or restore UI and no automatic purge; a server admin restores
+  non-existent one everywhere (list, every project route, share links, invitations, live, chat, access tokens),
+  but all its rows stay. There is no Trash or restore UI and no automatic purge; a server admin restores
   with `pnpm flowboard restore <id>` (or SQL, see README "Deleting projects") and can list soft-deleted projects
   with `pnpm flowboard deleted`. A permanent delete is a secondary option in the same dialog: the user types the
   project name, the server checks it again (`confirmName`), and one transaction removes the project with its
   versions, grants, share links, pending invitations, chat conversations (messages, turns, tool calls) and its
   audit entries. The audit log then keeps one `project.purge` entry (project id, actor, time, counts; no name or
   content, `document_id` empty so a new project with the same id starts clean). Soft-deleted projects are purged
-  only explicitly (`pnpm flowboard purge <id> --yes`). Access tokens may soft-delete but not delete permanently.
+  only explicitly (`pnpm flowboard purge <id> --yes`). Deleting is browser-only: requests with an access token get
+  403 for both kinds (maintainer decision). The chat idle cleanup skips conversations of soft-deleted projects, and a
+  restore moves their last activity forward by the time spent deleted. `pnpm flowboard export` includes
+  soft-deleted projects (`deletedAt` in project.json), and importing such a folder keeps them deleted, so an export
+  is a complete backup. A save that arrives after a delete or purge answers 404.
 - XML size limit: 20 MB per version (same as today's live limit), configurable.
 - `pending_grants` turn into `document_grants` when a user with that email signs in for the first time.
 
@@ -707,8 +711,8 @@ Implementation notes (4a done; 4b share links, pending grants by email and audit
 - Project delete (done 2026-11-09, migration `009_document_deletion`; decisions in 5): `DELETE /api/projects/:id`
   (owner only; `{ permanent: true, confirmName }` for a permanent delete), a Delete dialog on the project list for
   owners (not in the editor), and `pnpm flowboard deleted | restore <id> | purge <id> --yes` for admins. `roleOf`,
-  the project list, the CLI export, `joinByLink` (answers 410 "no longer available"), grants and invitation
-  acceptance all skip deleted documents. The 405 check in the matrix test now uses POST, since DELETE is a route.
+  the project list, `joinByLink` (answers 410 "no longer available"), grants, invitation acceptance, saves and the
+  chat idle sweep all skip deleted documents; the export includes them, marked as deleted. The 405 check in the matrix test now uses POST, since DELETE is a route.
 
 ### Phase 5: Live collaboration on the new model + live role changes
 

@@ -172,7 +172,7 @@ async function handleTokens(ctx: ApiContext, req: IncomingMessage, res: ServerRe
 }
 
 /**
- * DELETE /api/projects/:id  (owner only)
+ * DELETE /api/projects/:id  (owner only, browser session only: access tokens get 403)
  *   no body                                   soft delete: hidden everywhere, kept in the database
  *   { permanent: true, confirmName: <name> }  permanent delete; confirmName must repeat the project name
  * Everyone with the project open is told at once (`access` event); running chat turns stop.
@@ -185,12 +185,12 @@ async function deleteProject(
   allowed: (minimum: Role, ownerOnly?: string) => boolean
 ): Promise<void> {
   if (!allowed('owner', 'Only the owner can delete this project')) return;
+  // deleting is for people in the app: a script or a leaked token cannot remove projects
+  if (ctx.viaToken) return send(res, 403, { error: 'Delete projects in the app, not with a token' });
   const body = await readJson(req, 4096);
   if (body.permanent !== undefined && typeof body.permanent !== 'boolean') return send(res, 400, { error: 'permanent must be true or false' });
   let result;
   if (body.permanent) {
-    // a leaked token may hide a project (an admin can restore it), but never destroy it
-    if (ctx.viaToken) return send(res, 403, { error: 'Delete projects permanently in the app, not with a token' });
     const name = (await ctx.store.readMeta(id)).name || id;
     if (body.confirmName !== name) return send(res, 400, { error: 'Type the project name exactly to delete it permanently' });
     result = await ctx.store.purgeProject(id, ctx.identity.id);
@@ -286,6 +286,7 @@ export async function handleApi(
         baseVersion: body.baseVersion,
         force: !!body.force
       });
+      if ('gone' in result) return send(res, 404, { error: 'Project not found' }); // deleted while the request was on its way
       if ('conflict' in result) return send(res, 409, { error: 'conflict', latest: result.conflict });
       const { saved } = result;
       const rev = live.onSaved(id, { xml: body.xml, version: saved.version, author: identity.name, clientId: body.client });
