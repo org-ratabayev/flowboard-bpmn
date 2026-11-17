@@ -50,13 +50,11 @@ function warningText(text: string): string {
  * sub-processes. Iterative, so deeply nested diagrams cannot overflow the stack.
  */
 function walkProcess(process: ModdleElement, visit: (el: ModdleElement) => void) {
-  const laneSets = [...list(process.laneSets)].reverse();
-  while (laneSets.length) {
-    for (const lane of list(laneSets.pop()?.lanes)) {
-      visit(lane);
-      const child = lane.childLaneSet as ModdleElement | undefined;
-      if (child) laneSets.push(child);
-    }
+  const lanes = list(process.laneSets).flatMap((set) => list(set.lanes)).reverse();
+  while (lanes.length) {
+    const lane = lanes.pop()!;
+    visit(lane);
+    lanes.push(...[...list((lane.childLaneSet as ModdleElement | undefined)?.lanes)].reverse());
   }
   const stack = [...list(process.flowElements)].reverse();
   while (stack.length) {

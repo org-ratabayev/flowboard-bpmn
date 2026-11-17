@@ -859,15 +859,15 @@ Decisions:
 4. **Sharing:** `list_shares` (owner, read-only, always available, no flag). No `share_diagram`: granting, changing
    and revoking access stays in the Share dialog, because a share leaks data irreversibly and an AI client reading
    untrusted content could be tricked into sharing. `MCP_SHARING_TOOLS` / `mcp.allowSharingTools` are dropped.
-5. **Validation:** `bpmn-moddle@10.3.1` as a server dependency. MCP create and update reject XML that
-   fails to parse, has import warnings (unknown elements, unresolved references), or has a flow node or sequence
-   flow without DI (BPMNShape / BPMNEdge), the most common AI mistake. Participants, lanes and message flows must
-   REST saves stay unchanged (regex `looksLikeBpmn`). Requiring DI for participants, lanes and message flows
-   (beyond the flow nodes and sequence flows named in the decision) is a deliberate extension, because bpmn-js needs
-   it to render them. A shape needs `dc:Bounds`, an edge at least two waypoints, and the DI kind must match.
-   `restore_version` runs no new validation: it re-saves an already accepted version (only the size cap and
-   `looksLikeBpmn` apply), so versions saved by REST or import stay restorable.
-   REST saves stay unchanged (regex `looksLikeBpmn`).
+5. **Validation:** `bpmn-moddle@10.3.1` as a server dependency. MCP create and update reject XML that fails to
+   parse, has import warnings (unknown elements, unresolved references), or draws a flow node or sequence flow
+   wrongly: no BPMNShape / BPMNEdge, the wrong kind, a shape without `dc:Bounds`, an edge with fewer than two
+   waypoints. Missing DI is the most common AI mistake. Requiring DI for participants, lanes and message flows too
+   (beyond the flow nodes and sequence flows named in the decision) is a deliberate extension, because bpmn-js
+   needs it to render them. Data objects, annotations and associations need no DI. `get_diagram_summary` uses the
+   parsed model. `restore_version` runs no new validation: it re-saves an already accepted version (only the size
+   cap and `looksLikeBpmn` apply), so versions saved by REST or import stay restorable. REST saves stay unchanged
+   (regex `looksLikeBpmn`).
 6. **Unsaved live changes:** 409 `unsaved-changes` only while an editor with unsaved changes is connected to the
    live room. If the draft is abandoned (nobody connected), the MCP write proceeds and discards it. A stale base
    always answers 409 `stale`; there is no force. Drafts on other instances are not seen (phase 5 limitation).
@@ -885,7 +885,7 @@ Decisions:
 
 Findings kept from the investigation:
 - v2 `createMcpHandler(factory, options)` returns a web-standard `{ fetch }` handler that builds a fresh server per
-  request. `maxRequestBodySize` defaults to 4 MiB (REST allows 20 MB), so set it explicitly.
+  request. `maxRequestBodySize` defaults to 4 MiB (REST allows 20 MB); set it explicitly to 4 MiB (see assumptions).
 - `liveDoc(id).dirty` in `packages/server/src/live.ts` (`rev !== savedRev`) tracks unsaved changes in memory per
   instance. A draft stays dirty after everyone left, until someone saves; decision 6 needs the connected-editor
   count in addition.
@@ -903,7 +903,8 @@ Assumptions (minor):
   `restore` and note "Restored version from …"; same 409 rules as update, no new validation (decision 5).
 - `get_diagram` with `includeUnsaved` returns the live draft and a `dirty` flag.
 - The role is re-read on every tool call; no access gives a "not found" tool error (the 404 equivalent).
-- Diagrams are capped at 4 MiB on MCP writes (the SDK default for `maxRequestBodySize`): parsing 20 MB blocks the event loop for about 2 s and uses about 300 MB of heap. REST keeps 20 MB.
+- MCP writes cap diagrams at 4 MiB (also the SDK default for `maxRequestBodySize`): parsing 20 MB blocks the event
+  loop for about 2 s and uses about 300 MB of heap. REST keeps 20 MB.
 - Tests: `test/mcp.test.mjs` with the SDK client against a real server process over HTTP (SQLite and PGlite); role
   matrix with viewer, editor and owner tokens; session cookie without a token, invalid token, proxy identity with
   and without bearer, foreign `Origin`, stale base, unsaved live changes, the live `saved` event on an open
@@ -916,9 +917,9 @@ Assumptions (minor):
 `{ ok: false, problems }` (at most 20 short strings with element ids, e.g. `Task "Pack" has no BPMNShape in the
 diagram`); `summarizeBpmn(xml)` / `summarizeDefinitions(definitions)` return a compact summary (processes,
 participants, lanes, flow nodes with lane and parent sub-process, sequence flows with condition / default marks,
-message flows, counts, boundary hosts, event triggers, import warning count), without layout or text. Shapes are required for flow nodes (boundary events
-included), lanes and participants, edges for sequence flows and message flows; any diagram in the file counts, so
-collapsed sub-processes with their own plane work.
+message flows, counts, boundary hosts, event triggers, import warning count), without layout or text. Shapes are
+required for flow nodes (boundary events included), lanes and participants, edges for sequence flows and message
+flows; any diagram in the file counts, so collapsed sub-processes with their own plane work.
 
 ### Phase 8: MCP Apps views
 

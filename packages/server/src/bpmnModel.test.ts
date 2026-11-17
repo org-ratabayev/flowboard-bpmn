@@ -4,7 +4,7 @@ import { summarizeBpmn, validateBpmn } from './bpmnModel.ts';
 
 const NS = 'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" ' +
   'xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI"';
-const shape = (id: string) => `<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}" bioc:stroke="#000" color:border-color="#000"><dc:Bounds x="0" y="0" width="100" height="80" /></bpmndi:BPMNShape>`;
+const shape = (id: string) => `<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}"><dc:Bounds x="0" y="0" width="100" height="80" /></bpmndi:BPMNShape>`;
 const edge = (id: string) => `<bpmndi:BPMNEdge id="${id}_di" bpmnElement="${id}"><di:waypoint x="0" y="0" /><di:waypoint x="10" y="0" /></bpmndi:BPMNEdge>`;
 const wrap = (body: string, plane: string, root = 'Process_1') => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions ${NS} id="Defs" targetNamespace="http://example.com/bpmn">${body}
@@ -172,14 +172,18 @@ describe('summarizeBpmn', () => {
 describe('robustness', () => {
   it('never throws on deeply nested sub-processes and lanes', async () => {
     const depth = 20000;
-    const subs = `${'<bpmn:subProcess id="S">'.repeat(depth)}${'</bpmn:subProcess>'.repeat(depth)}`;
+    const ids = Array.from({ length: depth }, (_, i) => i);
+    // Unique ids: moddle drops elements with duplicate ids, which would hide the depth.
+    const subs = `${ids.map((i) => `<bpmn:subProcess id="s${i}">`).join('')}${'</bpmn:subProcess>'.repeat(depth)}`;
     const deepSub = wrap(`<bpmn:process id="Process_1">${subs}</bpmn:process>`, '');
     expect((await validateBpmn(deepSub)).ok).toBe(false);
-    expect(await summarizeBpmn(deepSub)).toBeDefined();
-    const lanes = `${'<bpmn:lane id="L"><bpmn:childLaneSet>'.repeat(depth)}${'</bpmn:childLaneSet></bpmn:lane>'.repeat(depth)}`;
-    const deepLane = wrap(`<bpmn:process id="Process_1"><bpmn:laneSet>${lanes}</bpmn:laneSet></bpmn:process>`, '');
+    const subSummary = await summarizeBpmn(deepSub);
+    expect(subSummary.ok && subSummary.summary.counts.nodes).toBe(depth);
+    const lanes = `${ids.map((i) => `<bpmn:lane id="l${i}"><bpmn:childLaneSet id="c${i}">`).join('')}${'</bpmn:childLaneSet></bpmn:lane>'.repeat(depth)}`;
+    const deepLane = wrap(`<bpmn:process id="Process_1"><bpmn:laneSet id="ls">${lanes}</bpmn:laneSet></bpmn:process>`, '');
     expect((await validateBpmn(deepLane)).ok).toBe(false);
-    expect(await summarizeBpmn(deepLane)).toBeDefined();
+    const laneSummary = await summarizeBpmn(deepLane);
+    expect(laneSummary.ok && laneSummary.summary.counts.lanes).toBe(depth);
   });
 
   it('handles any input without throwing', async () => {
@@ -209,7 +213,7 @@ describe('robustness', () => {
     expect(unresolved.ok === false && unresolved.problems.join('').length).toBeLessThan(500);
   });
 
-  it('treats prototype-like ids as ordinary ids', async () => {
+  it('rejects prototype-like ids with a hint and does not pollute', async () => {
     const xml = wrap(`<bpmn:process id="Process_1"><bpmn:task id="constructor" /><bpmn:task id="__proto__" /></bpmn:process>`, shape('constructor'));
     const result = await validateBpmn(xml);
     expect(result.ok === false && result.problems.join('\n')).toMatch(/property names/);
