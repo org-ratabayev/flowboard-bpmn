@@ -46,11 +46,14 @@ export function registerProjectTools(server: McpServer, ctx: ToolContext): void 
     return found;
   }
 
-  /** The latest version, or this instance's live draft on top of it with includeUnsaved. */
+  /**
+   * The latest version, or with includeUnsaved this instance's live draft when it has unsaved changes. A draft
+   * that is not dirty adds nothing and may be stale (a save on another instance does not reach this room).
+   */
   async function current(id: string, unsaved: boolean) {
     const latest = await store.readVersionDetails(id, null);
     const draft = unsaved ? live.liveDoc(id) : null;
-    const xml = draft?.xml ?? latest?.xml ?? EMPTY_DIAGRAM;
+    const xml = (draft?.dirty ? draft.xml : latest?.xml) ?? EMPTY_DIAGRAM;
     checkSize(id, xml);
     return { latest, xml, ...(unsaved ? { dirty: draft?.dirty ?? false } : {}) };
   }

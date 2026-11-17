@@ -159,6 +159,20 @@ describe('MCP read tools', () => {
     assert.equal(await callError(clients.viewer, 'get_diagram', { diagramId: 'brief' }), 'Diagram not found');
   });
 
+  it('refuses diagrams over 4 MiB with the editor link', async () => {
+    const olga = server.as('Olga');
+    await olga('POST', '/api/projects', { name: 'Huge' });
+    const base = (await olga('GET', '/api/projects/huge')).body.version;
+    const huge = diagram('Huge').replace('</bpmn:definitions>', `<!-- ${'x'.repeat(4 * 1024 * 1024)} -->\n</bpmn:definitions>`);
+    assert.equal((await olga('PUT', '/api/projects/huge', { xml: huge, baseVersion: base })).status, 200);
+    const hugeVersion = (await olga('GET', '/api/projects/huge')).body.version;
+    const calls = [['get_diagram', {}], ['get_diagram_summary', {}], ['get_version', { versionId: hugeVersion }], ['export_diagram', {}]];
+    for (const [tool, args] of calls) {
+      assert.match(await callError(clients.owner, tool, { diagramId: 'huge', ...args }), new RegExp(`up to 4 MB\\. Open it in the editor: ${server.base}/p/huge$`), tool);
+    }
+    assert.equal((await callOk(clients.owner, 'list_versions', { diagramId: 'huge' })).total, 2);
+  });
+
   it('returns the problems of stored XML that does not parse', async () => {
     const olga = server.as('Olga');
     await olga('POST', '/api/projects', { name: 'Broken' });
