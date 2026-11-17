@@ -172,7 +172,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       if (config.mcp.enabled) {
         const th = config.auth.trustedHeaders;
         mcp = createMcpEndpoint({
-          store, access, auth, tokens, publicOrigin: config.publicOrigin, proxyAuth: config.mcp.proxyAuth,
+          store, access, live: ctx.live, auth, tokens, publicOrigin: config.publicOrigin, proxyAuth: config.mcp.proxyAuth,
           secretHeaders: [th.proxySecretHeader, th.tokenHeader].filter((h): h is string => !!h)
         });
       }

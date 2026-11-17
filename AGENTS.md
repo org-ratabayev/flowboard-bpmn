@@ -16,8 +16,8 @@ agent loop with configurable providers (Anthropic, OpenAI-compatible); an MCP se
 
 - User-facing behaviour, env vars and APIs: `README.md` (authoritative for users).
 - Full design and phase plan: `docs/redesign-plan.md`. Done: phases 1-6 (6a providers and keys, 6b agent loop,
-  6c chat UI and editor tools). In progress: 7 (MCP server; 7a validation and 7b-1 endpoint done, 7b-2 read
-  tools, 7c write tools; decisions in the plan). Postponed: 9 (MCP client in chat; findings in the plan). Later: 8 (MCP
+  6c chat UI and editor tools). In progress: 7 (MCP server; 7a validation, 7b endpoint and read tools done,
+  7c write tools; decisions in the plan). Postponed: 9 (MCP client in chat; findings in the plan). Later: 8 (MCP
   Apps), 10 (docs, example deployment). Where the plan's target layout
   (section 3.1: a shared package, config/ and routes/ folders, a lint step, a dev script) differs from the code,
   the code is what exists today.
@@ -58,7 +58,7 @@ Server (`packages/server/src/`):
 | `packages/server/src/bpmn.ts` | `looksLikeBpmn`, `EMPTY_DIAGRAM` |
 | `packages/server/src/bpmnModel.ts` | bpmn-moddle parsing: `validateBpmn` (parse errors, warnings, missing DI), `summarizeBpmn`; for the MCP tools, not REST saves (`bpmnModdleTypes.d.ts` types the library) |
 | `packages/server/src/auth/` | `index.ts` (`createAuth`: dev, trusted-headers), `oidc.ts`, `common.ts` (sessions), `authStore.ts` (users, sessions), `tokenStore.ts` (PATs), `requestChecks.ts` (cookies, `isSameOrigin`, proxy address matching) |
-| `packages/server/src/mcp/` | MCP server: `endpoint.ts` (`POST /mcp`, SDK handler, Origin check), `mcpAuth.ts` (who may call: PAT, or the trusted proxy's identity), `nodeBridge.ts` (`node:http` to `Request`/`Response`), `tools.ts` (the tools) |
+| `packages/server/src/mcp/` | MCP server: `endpoint.ts` (`POST /mcp`, SDK handler, Origin check), `mcpAuth.ts` (who may call: PAT, or the trusted proxy's identity), `nodeBridge.ts` (`node:http` to `Request`/`Response`), `tools.ts` (server per request, `list_diagrams`), `projectTools.ts` (read tools on one diagram), `toolResults.ts` (`ToolError`, `guarded`) |
 | `packages/server/src/storage/` | `db.ts` (`Db` abstraction), `sqliteDb.ts`, `postgresDb.ts`, `migrations.ts`, `sqlStore.ts` (documents, versions, soft delete / purge / restore), `accessStore.ts` (roles, grants, links, invites, audit), `folder.ts` (import/export), `index.ts` (`openStore`), `testBackends.ts` |
 | `packages/server/src/llm/` | `types.ts` (`LlmProvider`, content blocks, `Credentials`), `catalog.ts` (provider list, credential sources), `anthropic.ts`, `openai.ts`, `keyStore.ts` (encrypted personal keys), `routes.ts` (`/api/llm`, model lists, `redact`), `sse.ts`, `claudeCodeCli.ts` (dev-only Claude Code CLI provider) |
 | `packages/server/src/chat/` | AI chat: `agentLoop.ts` (one turn: model calls, tool calls, role re-check), `agentRoutes.ts` (chat routes, limits), `conversationStore.ts` (conversations, messages, turns, tool calls, rate limit), `toolSpecs.ts` (browser tools, `toolsForRole`, `toolRefusal`), `attachments.ts`, `systemPrompt.ts` with `packages/server/src/chat/prompts/bpmn-assistant.md`, `history.ts` (provider-valid history), `signals.ts` (wake the instance running a turn) |
@@ -84,7 +84,7 @@ Undo, highlights), `changes.mjs` (bpmn-js-differ, version note), `attachments.mj
 
 Tests: unit tests `*.test.ts` next to the code (vitest); browser module tests `*.test.mjs` next to the module in
 jsdom (`packages/web/src/chat/test-fixtures.mjs` has diagrams); API tests `test/*.test.mjs` with helpers in
-`test/helpers/server.mjs` (start server, sign in, requests, live streams), `test/helpers/chat.mjs` (plays the
+`test/helpers/server.mjs` (start server, sign in, requests, live streams), `test/helpers/mcp.mjs` (MCP client), `test/helpers/chat.mjs` (plays the
 editor in chat tests) and `test/helpers/pglite-server.mjs`; headless Chrome in `test/browser/`.
 
 ## Commands

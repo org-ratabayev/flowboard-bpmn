@@ -844,8 +844,8 @@ The maintainer settled the open decisions of the 2026-11-08 investigation. Work 
   exposed over HTTP.
 - **7b**: the `/mcp` endpoint (SDK, bridge, auth, origin check) and the read tools: `list_diagrams`, `get_diagram`
   (incl. `includeUnsaved`), `get_diagram_summary`, `list_versions`, `get_version`, `export_diagram`, `list_shares`.
-  Split for review into **7b-1** (done: endpoint, sign-in, `MCP_SERVER`, `list_diagrams`) and **7b-2** (the other
-  read tools).
+  Split for review into **7b-1** (done: endpoint, sign-in, `MCP_SERVER`, `list_diagrams`) and **7b-2** (done: the
+  other read tools).
 - **7c**: the write tools `create_diagram`, `update_diagram`, `rename_diagram`, `restore_version`; the 409 rules;
   live broadcast; role matrix tests.
 
@@ -945,6 +945,20 @@ else is logged and answered `Internal error`. Tools advertise `listChanged: fals
 `list_diagrams` filters `store.listProjects(userId)` (roles per call, deleted excluded) in memory;
 `shared` needs the user's grants (`access.grantedDocumentIds`), since a granted viewer of an `everyone` project
 looks like any viewer otherwise. Tool results carry JSON text and `structuredContent` (with an output schema).
+
+#### 7b-2 implementation notes
+
+`packages/server/src/mcp/projectTools.ts` has the read tools on one diagram; `toolResults.ts` holds `ToolError`,
+`guarded()` and `jsonResult()` for all tools. `requireRole` reads the role on every call: `none` (also unknown,
+malformed or deleted ids) gives "Diagram not found"; a lower role on a diagram the caller can open gives a readable
+refusal, like REST's 403 (only `list_shares` needs more than viewer). Version ids are looked up within the project, so
+another project's id is "Version not found". New store reads: `versionPage` (paged, with `source`, no XML) and
+`readVersionDetails` (one version or the latest, with XML). `includeUnsaved` uses `live.liveDoc` of this instance;
+the summary of a draft costs the same as of a version, so it supports it too. `list_shares` maps
+`access.access(id, { forOwner: true })`, which never holds link tokens (only hashes exist), to names, emails, roles
+and dates. Responses: diagrams over 4 MiB are refused with the editor link (the same cap as MCP writes; the XML is in
+the response twice, as structured content and as JSON text). Only `list_diagrams` declares an output schema; the
+summary's shape is defined by `summarizeBpmn`.
 
 ### Phase 8: MCP Apps views
 

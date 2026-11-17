@@ -3,6 +3,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createLiveHub } from '../live.ts';
 import type { AccessStore } from '../storage/accessStore.ts';
 import type { DocumentStore } from '../storage/index.ts';
 import { createToolServer } from './tools.ts';
@@ -11,6 +12,7 @@ async function connect(store: Partial<DocumentStore>, access: Partial<AccessStor
   const server = createToolServer({
     store: store as DocumentStore,
     access: access as AccessStore,
+    live: createLiveHub(),
     caller: { user: { id: 'u1', provider: 'dev', subject: 'ann', name: 'Ann', email: null }, via: 'token' },
     origin: 'https://flowboard.example.com'
   });

@@ -44,6 +44,10 @@ export interface VersionInfo {
 
 export type VersionSource = 'editor' | 'restore' | 'import' | 'mcp' | 'ai';
 
+export interface VersionDetails extends VersionInfo {
+  source: VersionSource;
+}
+
 export interface SaveOptions {
   /** Display name shown in the history. */
   author?: string | null;
@@ -243,6 +247,31 @@ export function createSqlStore(db: Db) {
 
     currentVersion(id: string): Promise<string | null> {
       return db.read(async (q) => (await latestVersion(q, id))?.info.version ?? null);
+    },
+
+    /** One page of the history, newest first, with each version's source (no XML). */
+    versionPage(id: string, limit: number, offset: number): Promise<{ versions: VersionDetails[]; total: number }> {
+      return db.read(async (q) => {
+        const rows = await q.all<VersionRow & { source: VersionSource }>(
+          `SELECT name, created_at, author_name, note, size, source FROM document_versions WHERE document_id = $1
+           ORDER BY seq DESC LIMIT $2 OFFSET $3`,
+          [id, limit, offset]
+        );
+        const total = await q.get<{ n: unknown }>('SELECT COUNT(*) AS n FROM document_versions WHERE document_id = $1', [id]);
+        return { versions: rows.map((r) => ({ ...toVersionInfo(r), source: r.source })), total: Number(total!.n) };
+      });
+    },
+
+    /** One version (the latest when `version` is null) with its XML and details; null when there is none. */
+    readVersionDetails(id: string, version: string | null): Promise<(VersionDetails & { xml: string }) | null> {
+      return db.read(async (q) => {
+        const row = await q.get<VersionRow & { source: VersionSource; xml: string }>(
+          `SELECT name, created_at, author_name, note, size, source, xml FROM document_versions WHERE document_id = $1
+           ${version === null ? 'ORDER BY seq DESC LIMIT 1' : 'AND name = $2'}`,
+          version === null ? [id] : [id, version]
+        );
+        return row ? { ...toVersionInfo(row), source: row.source, xml: row.xml } : null;
+      });
     },
 
     /** One saved version, or null when it does not exist. */

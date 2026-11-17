@@ -69,6 +69,20 @@ describe.each(backends)('$name store', (backend) => {
     expect((await store.listProjects())[0].versionCount).toBe(3);
   });
 
+  it('pages the history with sources and reads one version with its details', async () => {
+    const id = await store.createProject('Paged', xml('1'), 'Ann');
+    const first = (await store.currentVersion(id))!;
+    const saved = await store.saveVersion(id, xml('2'), { author: 'Bob', baseVersion: first, note: 'Second', source: 'mcp' });
+    const second = 'saved' in saved ? saved.saved.version : '';
+    const page = await store.versionPage(id, 1, 0);
+    expect(page.total).toBe(2);
+    expect(page.versions).toEqual([expect.objectContaining({ version: second, author: 'Bob', note: 'Second', source: 'mcp' })]);
+    expect((await store.versionPage(id, 5, 1)).versions.map((v) => [v.version, v.source])).toEqual([[first, 'editor']]);
+    expect(await store.readVersionDetails(id, null)).toMatchObject({ version: second, source: 'mcp', xml: xml('2') });
+    expect(await store.readVersionDetails(id, first)).toMatchObject({ version: first, author: 'Ann', xml: xml('1') });
+    expect(await store.readVersionDetails('other', first)).toBeNull();
+  });
+
   it('lets only one of two concurrent saves on the same base win', async () => {
     const id = await store.createProject('Race', xml('1'), null);
     const base = await store.currentVersion(id);

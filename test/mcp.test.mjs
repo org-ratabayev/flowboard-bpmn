@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { callOk, connect, tokenOf } from './helpers/mcp.mjs';
 import { startServer } from './helpers/server.mjs';
 
 const INITIALIZE = {
@@ -22,20 +22,7 @@ function post(server, headers = {}, method = 'POST') {
   });
 }
 
-/** `modern` pins the 2026-07-28 protocol; the client's default is the 2025 handshake. */
-async function connect(server, headers, { modern = false } = {}) {
-  const client = new Client({ name: 'flowboard-test', version: '1.0.0' }, modern ? { versionNegotiation: { mode: { pin: '2026-07-28' } } } : {});
-  await client.connect(new StreamableHTTPClientTransport(new URL(`${server.base}/mcp`), { requestInit: { headers } }));
-  return client;
-}
-
-async function listDiagrams(client, args = {}) {
-  const result = await client.callTool({ name: 'list_diagrams', arguments: args });
-  assert.equal(result.isError, undefined, JSON.stringify(result));
-  return result.structuredContent;
-}
-
-const tokenOf = async (server, name) => (await server.as(name)('POST', '/api/tokens', { name: 'MCP', expiresInDays: 1 })).body.token;
+const listDiagrams = (client, args = {}) => callOk(client, 'list_diagrams', args);
 
 describe('MCP endpoint with personal access tokens', () => {
   let server;
@@ -49,7 +36,7 @@ describe('MCP endpoint with personal access tokens', () => {
   it('serves list_diagrams to a client with a token', async () => {
     const client = await connect(server, { Authorization: `Bearer ${annToken}` });
     try {
-      assert.deepEqual((await client.listTools()).tools.map((t) => t.name), ['list_diagrams']);
+      assert.deepEqual((await client.listTools()).tools.map((t) => t.name).sort(), ['export_diagram', 'get_diagram', 'get_diagram_summary', 'get_version', 'list_diagrams', 'list_shares', 'list_versions']);
       assert.equal((await listDiagrams(client)).total, 0);
     } finally {
       await client.close();
