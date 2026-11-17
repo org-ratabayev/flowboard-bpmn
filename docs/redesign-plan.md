@@ -122,7 +122,7 @@ browser ──HTTP/SSE──▶ server (createServer)
 | Postgres | `pg` |
 | SQLite | `node:sqlite` (built in) |
 | OIDC client | `openid-client` |
-| MCP server + client | `@modelcontextprotocol/sdk`, `@modelcontextprotocol/ext-apps` |
+| MCP server + client | `@modelcontextprotocol/server` and `/client` (v2), `@modelcontextprotocol/ext-apps` |
 | Anthropic | `@anthropic-ai/sdk` (Messages API tool loop) or `@anthropic-ai/claude-agent-sdk` |
 | OpenAI-compatible | `openai` (custom `baseURL`) |
 | BPMN parsing server-side | `bpmn-moddle` (validate XML, read element ids/names) |
@@ -514,9 +514,9 @@ tokens (encrypted, refreshed one at a time per user); until then, `identity` is 
 
 ## 8. MCP server (expose)
 
-Endpoint: `POST|GET|DELETE /mcp` using the official SDK's Streamable HTTP transport (stateless mode is sufficient).
-Authentication: PAT (`Authorization: Bearer fb_pat_…`) or whatever the active `AuthProvider` accepts (e.g. trusted
-headers behind a proxy). Every tool call resolves the role exactly like REST routes.
+Endpoint: `POST /mcp` using the official SDK's v2 streamable HTTP transport, stateless; GET and DELETE answer 405.
+Authentication (decision 7 in Phase 7): PAT bearer in every mode; in `trusted-headers` mode also the verified proxy's
+identity headers with a non-PAT bearer; no cookie sessions. Every tool call resolves the role exactly like REST routes.
 
 Example client config (Claude Code / Claude Desktop):
 
@@ -531,14 +531,15 @@ Example client config (Claude Code / Claude Desktop):
 |---|---|---|
 | `list_diagrams` | – | filters: `scope` (mine / shared / everyone / all), `query`, `limit`, `offset`; returns id, name, role, updatedAt, url |
 | `get_diagram` | viewer | XML + metadata + `versionId`; option `includeUnsaved` returns the live draft |
-| `get_diagram_summary` | viewer | element index without full XML (cheaper for models) |
-| `create_diagram` | – | name + optional XML (validated); returns id + editor URL |
-| `update_diagram` | editor | full XML + `baseVersionId`; creates a version with `source='mcp'`; `409` if stale **or** if the document has unsaved live changes (the agent should tell the user to save first) |
+| `get_diagram_summary` | viewer | element index without full XML (cheaper for models), from the parsed model |
+| `create_diagram` | – | name + optional XML (validated with `validateBpmn`: parse, warnings, DI); returns id + editor URL |
+| `update_diagram` | editor | full XML (validated) + `baseVersionId`; creates a version with `source='mcp'`; `409 stale` if the base is old, `409 unsaved-changes` while an editor with unsaved changes is connected (the agent should tell the user to save first) |
 | `rename_diagram` | editor | |
-| `delete_diagram` | owner | soft delete |
-| `list_versions` / `get_version` / `restore_version` | viewer / viewer / editor | |
+| `list_versions` / `get_version` / `restore_version` | viewer / viewer / editor | restore re-saves an accepted version, no new validation |
 | `export_diagram` | viewer | `.bpmn` text; SVG is produced by the MCP Apps viewer (no headless rendering on the server) |
-| `share_diagram` / `list_shares` | owner | disabled unless `mcp.allowSharingTools: true` |
+| `list_shares` | owner | read-only, always available |
+
+Deliberately absent: `delete_diagram` (MCP never deletes) and `share_diagram` (access changes stay in the Share dialog).
 
 Saves through MCP are broadcast to open editors through the live channel, like a save from another browser.
 
@@ -830,86 +831,95 @@ model asks); the CLI provider still works in dev mode.
 Tasks:
 1. `/mcp` with the official SDK (8); tools from 8.1 implemented on top of the same repositories and `resolveRole`.
 2. PAT auth for `/mcp`; documentation with a client config example.
-3. Live broadcast of MCP saves; `409` when stale or when unsaved live changes exist.
-4. Tests with the SDK's client against the in-memory server; role matrix for tools.
+3. Live broadcast of MCP saves; `409 stale` for an old base, `409 unsaved-changes` only while an editor with unsaved changes is connected.
+4. Tests with the SDK client against a real server process over HTTP; role matrix for tools.
 
 Acceptance: Claude Code configured with a PAT can list, read, create and update diagrams; a viewer PAT cannot
 update; an open editor shows the MCP update live.
 
-#### Status: postponed. Findings and open decisions (2026-11-08)
+#### Status: in progress, decisions (2026-11-17)
 
-Nothing is implemented yet. This records the investigation, so the work can resume from here.
+The maintainer settled the open decisions of the 2026-11-08 investigation. Work is split into three PRs:
+- **7a** (done): this record, plus `packages/server/src/bpmnModel.ts` (`validateBpmn`, `summarizeBpmn`). Nothing is
+  exposed over HTTP.
+- **7b**: the `/mcp` endpoint (SDK, bridge, auth, origin check) and the read tools: `list_diagrams`, `get_diagram`
+  (incl. `includeUnsaved`), `get_diagram_summary`, `list_versions`, `get_version`, `export_diagram`, `list_shares`.
+- **7c**: the write tools `create_diagram`, `update_diagram`, `rename_diagram`, `restore_version`; the 409 rules;
+  live broadcast; role matrix tests.
 
-Findings:
-- Two SDK lines, both older than the 14-day minimum release age:
-  - v1 `@modelcontextprotocol/sdk@1.32.2` (MIT, released 2026-10-23), the package named in 3.3. It pulls in
-    express, hono, `@hono/node-server`, ajv, ajv-formats, cors, jose, express-rate-limit, raw-body, eventsource and
-    more.
-  - v2, split into `@modelcontextprotocol/server@2.4.0` and `@modelcontextprotocol/client@2.4.0` (Apache-2.0,
-    released 2026-10-23; the optional `@modelcontextprotocol/node@2.1.2` adapter adds hono). The server package
-    depends only on `zod` ^4.2 (already used, 4.6.7) and `@modelcontextprotocol/core@2.4.0`. It calls itself the
-    stable line and implements the 2026-07-28 spec.
-- v2's `createMcpHandler(factory, options)` returns a web-standard `{ fetch }` handler that builds a fresh server
-  per request. With `legacy: 'stateless'` (the default) it also answers 2025-era clients statelessly, with GET and
-  DELETE answering 405. `maxRequestBodySize` defaults to 4 MiB (REST allows 20 MB). Without the node adapter, a
-  small `node:http` to `Request`/`Response` bridge is needed.
-- Delete and restore do not exist in the code: no delete or trash route, no `deleted_at` column, no restore
-  route. The editor restores by saving the old XML through `PUT /api/projects/:id` with a note.
-- No server-side BPMN parsing: saves use only the regex `looksLikeBpmn` (`packages/server/src/bpmn.ts`).
-  `bpmn-moddle@10.3.1` is a root dev dependency only.
-- Unsaved live changes are tracked in memory per instance: `liveDoc(id).dirty` in `packages/server/src/live.ts`
-  (`rev !== savedRev`). A draft stays dirty after everyone has left, until someone saves; it is lost on restart.
-- Building blocks: `userForToken` (`packages/server/src/auth/tokenStore.ts`) for token auth; `roleOf`
-  (`packages/server/src/storage/accessStore.ts`) for roles; `saveVersion` with `baseVersion` and `source: 'mcp'`
-  (`packages/server/src/storage/sqlStore.ts`, the source value already exists); `live.onSaved` for the broadcast;
-  `access.invite` for sharing by email.
+Decisions:
+1. **SDK: v2.** `@modelcontextprotocol/server@2.4.0` as a dependency, `@modelcontextprotocol/client@2.4.0` as a dev
+   dependency for tests, and an own small `node:http` to `Request`/`Response` bridge (no node adapter, no hono).
+   Also because the current `@modelcontextprotocol/ext-apps` 2.x (phase 8) requires the v2 packages, and phase 9
+   reuses the v2 client.
+2. **Transport:** streamable HTTP, stateless (`createMcpHandler`, `legacy: 'stateless'`). GET and DELETE on `/mcp`
+   answer 405.
+3. **No `delete_diagram` tool.** Deleting is a human action in the app UI only, whatever way an MCP caller signed
+   in. Rule: MCP never deletes.
+4. **Sharing:** `list_shares` (owner, read-only, always available, no flag). No `share_diagram`: granting, changing
+   and revoking access stays in the Share dialog, because a share leaks data irreversibly and an AI client reading
+   untrusted content could be tricked into sharing. `MCP_SHARING_TOOLS` / `mcp.allowSharingTools` are dropped.
+5. **Validation:** `bpmn-moddle@10.3.1` as a server dependency. MCP create and update reject XML that fails to
+   parse, has import warnings (unknown elements, unresolved references), or draws a flow node or sequence flow
+   wrongly: no BPMNShape / BPMNEdge, the wrong kind, a shape without `dc:Bounds`, an edge with fewer than two
+   waypoints. Missing DI is the most common AI mistake. Requiring DI for participants, lanes and message flows too
+   (beyond the flow nodes and sequence flows named in the decision) is a deliberate extension, because bpmn-js
+   needs it to render them. Data objects, annotations and associations need no DI. `get_diagram_summary` uses the
+   parsed model. `restore_version` runs no new validation: it re-saves an already accepted version (only the size
+   cap and `looksLikeBpmn` apply), so versions saved by REST or import stay restorable. REST saves stay unchanged
+   (regex `looksLikeBpmn`).
+6. **Unsaved live changes:** 409 `unsaved-changes` only while an editor with unsaved changes is connected to the
+   live room. If the draft is abandoned (nobody connected), the MCP write proceeds and discards it. A stale base
+   always answers 409 `stale`; there is no force. Drafts on other instances are not seen (phase 5 limitation).
+7. **Default and auth:** `/mcp` is on by default (`MCP_SERVER=off` disables it). Accepted:
+   - (a) personal access tokens (`Authorization: Bearer fb_pat_…`) in every auth mode;
+   - (b) in `trusted-headers` mode, a request from the verified proxy (`AUTH_PROXY_SECRET` /
+     `AUTH_TRUSTED_PROXIES`) that carries identity headers and a bearer that is **not** a `fb_pat_` token. The
+     header identity is used; the bearer is only proof that this is not a cookie-driven browser request, and is
+     never stored or checked by us. Only on `/mcp`; REST rules are unchanged.
+   - No cookie sessions on `/mcp`. If an `Origin` header is present it must match our origin (DNS rebinding).
+   - Everything else: 401 with `WWW-Authenticate: Bearer`.
+   - (b) lets a deployment behind an authenticating proxy, whose MCP clients send the proxy's own bearer, work
+     without PATs. It changes the AGENTS.md invariant "a request with an `Authorization` header is judged by that
+     header only"; PR 7b updates that rule (for `/mcp` only) together with the code.
 
-Open decisions (recommendation first):
-1. SDK line. (a) v2: `@modelcontextprotocol/server@2.4.0` as a dependency, `@modelcontextprotocol/client@2.4.0`
-   as a dev dependency for tests, and an own small `node:http` bridge. (b) v1 `@modelcontextprotocol/sdk@1.32.2`.
-   Recommended: (a), far fewer dependencies, serves both spec eras, phase 9 would reuse the client.
-2. Transport: streamable HTTP without sessions (`createMcpHandler`, `legacy: 'stateless'`); GET and DELETE on
-   `/mcp` answer 405. Recommended.
-3. `delete_diagram`. (a) Leave it out of phase 7 and list it as left: soft delete (migration, filtering in every
-   query, trash, restore, UI) is its own PR. (b) Add soft delete here. Recommended: (a).
-4. Sharing tools. (a) `list_shares` and `share_diagram` (owner only, role viewer or editor, by email, like the
-   REST invite), hidden unless `MCP_SHARING_TOOLS=on` (strict opt-in). (b) Defer both. Recommended: (a). They are
-   opt-in because of prompt injection: an AI client reading untrusted content could be tricked into sharing a
-   diagram with someone.
-5. Validation and summary: `bpmn-moddle@10.3.1` as a server dependency (MIT). MCP create, update and restore
-   reject XML that fails to parse or has import warnings; `get_diagram_summary` lists elements, flows and lanes.
-   REST saves stay unchanged. Recommended. Alternative: regex extraction without real validation.
-6. Unsaved live changes. A stale base always answers 409 (`stale`); there is no force override.
-   - Proposed: also 409 (`unsaved-changes`) whenever the live room on this instance is dirty, whether or not
-     anyone is connected; the message asks the user to save or discard in the editor.
-   - Reviewer's alternative (preferred, still to be confirmed): block only while an editor with unsaved changes
-     is connected. Otherwise the write proceeds and the abandoned draft is discarded, since it would be lost on
-     restart anyway.
-   - Either way, drafts on other instances are not seen (the phase 5 limitation).
-7. Default and auth: `/mcp` on by default (`MCP_SERVER=off` disables it), since it needs a token and exposes only
-   what REST already allows with one. Bearer access tokens only; anything else gets 401 with
-   `WWW-Authenticate: Bearer`. No cookie sessions (avoids CSRF on `/mcp`); trusted-headers identities later.
-   Recommended. Open: accept trusted-headers identities now?
+Findings kept from the investigation:
+- v2 `createMcpHandler(factory, options)` returns a web-standard `{ fetch }` handler that builds a fresh server per
+  request. `maxRequestBodySize` defaults to 4 MiB (REST allows 20 MB); set it explicitly to 4 MiB (see assumptions).
+- `liveDoc(id).dirty` in `packages/server/src/live.ts` (`rev !== savedRev`) tracks unsaved changes in memory per
+  instance. A draft stays dirty after everyone left, until someone saves; decision 6 needs the connected-editor
+  count in addition.
+- Building blocks: `userForToken` (`packages/server/src/auth/tokenStore.ts`); `roleOf`
+  (`packages/server/src/storage/accessStore.ts`); `saveVersion` with `baseVersion` and `source: 'mcp'`
+  (`packages/server/src/storage/sqlStore.ts`); `live.onSaved` for the broadcast. Soft delete exists (#22), so tools
+  must not reach deleted projects (`roleOf` already answers `none`).
 
-Assumptions (minor, decided unless the maintainer objects):
-- Tool names as in 8.1, without `delete_diagram` (decision 3). `versionId` is the existing version name.
-- `url` is `PUBLIC_ORIGIN` + `/p/<id>`, or the request's origin when `PUBLIC_ORIGIN` is unset.
+Assumptions (minor):
+- `versionId` is the existing version name. `url` is `PUBLIC_ORIGIN` + `/p/<id>`, or the request's origin when
+  `PUBLIC_ORIGIN` is unset.
 - `list_diagrams` scopes: `mine` (owned), `shared` (granted), `everyone` (visible to all, neither owned nor
   granted), `all`; case-insensitive match of name and id on `query`; `limit` 1-100 (default 50), `offset`.
 - `restore_version` (editor): `versionId` + `baseVersionId`; saves the old XML as a new version with source
-  `restore` and note "Restored version from …"; same 409 rules as update; broadcast live.
+  `restore` and note "Restored version from …"; same 409 rules as update, no new validation (decision 5).
 - `get_diagram` with `includeUnsaved` returns the live draft and a `dirty` flag.
-- Create, update, rename and restore broadcast to open editors like REST saves.
 - The role is re-read on every tool call; no access gives a "not found" tool error (the 404 equivalent).
-- Requests and diagrams are capped at 20 MB, as in REST.
-- Tests: `test/mcp.test.mjs` with the SDK client against a real server process over HTTP (SQLite and PGlite);
-  role matrix with viewer, editor and owner tokens; session cookie without a token, invalid token, stale base,
-  unsaved live changes, the live `saved` event on an open stream, sharing tools off and on; unit tests for the
-  summary and validation.
+- MCP writes cap diagrams at 4 MiB (also the SDK default for `maxRequestBodySize`): parsing 20 MB blocks the event
+  loop for about 2 s and uses about 300 MB of heap. REST keeps 20 MB.
+- Tests: `test/mcp.test.mjs` with the SDK client against a real server process over HTTP (SQLite and PGlite); role
+  matrix with viewer, editor and owner tokens; session cookie without a token, invalid token, proxy identity with
+  and without bearer, foreign `Origin`, stale base, unsaved live changes, the live `saved` event on an open
+  stream. Unit tests for validation and summary (7a).
 - Not in phase 7: rate limits on access-token use (13), which REST does not have either.
 
-To resume: branch from the latest main, read this subsection, confirm decisions 1-7 with the maintainer, then
-build.
+#### 7a implementation notes
+
+`packages/server/src/bpmnModel.ts`: `validateBpmn(xml)` returns `{ ok: true, definitions }` or
+`{ ok: false, problems }` (at most 20 short strings with element ids, e.g. `Task "Pack" has no BPMNShape in the
+diagram`); `summarizeBpmn(xml)` / `summarizeDefinitions(definitions)` return a compact summary (processes,
+participants, lanes, flow nodes with lane and parent sub-process, sequence flows with condition / default marks,
+message flows, counts, boundary hosts, event triggers, import warning count), without layout or text. Shapes are
+required for flow nodes (boundary events included), lanes and participants, edges for sequence flows and message
+flows; any diagram in the file counts, so collapsed sub-processes with their own plane work.
 
 ### Phase 8: MCP Apps views
 
@@ -1072,4 +1082,4 @@ Acceptance: a new developer can follow README to run the core with SQLite in und
 | Q3 | Do viewers see version history including author names? | yes |
 | Q4 | Allow anonymous (not signed-in) access via share links? | no |
 | Q5 | Soft-delete retention period? | 30 days |
-| Q6 | Should MCP clients be allowed to change sharing (`share_diagram`)? | no (config flag, off) |
+| Q6 | Should MCP clients be allowed to change sharing (`share_diagram`)? | No. Answered: no `share_diagram`, no flag; `list_shares` is read-only for owners (Phase 7, decision 4) |
