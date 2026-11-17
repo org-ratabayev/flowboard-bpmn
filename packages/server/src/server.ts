@@ -1,6 +1,7 @@
 // createServer: builds the HTTP server from the configuration. Checks the Origin of state-changing
-// requests (CSRF), authenticates every request (access token or session), routes to /auth, the
-// pages, static files, /api/llm and /api, and wires storage, events, AI providers and chat on start.
+// requests (CSRF), authenticates every request (access token or session), routes to /auth, /mcp
+// (own sign-in rules, see mcp/mcpAuth.ts), the pages, static files, /api/llm and /api, and wires
+// storage, events, AI providers, chat and the MCP endpoint on start.
 
 import fsp from 'node:fs/promises';
 import http from 'node:http';
@@ -10,6 +11,7 @@ import { createAgentChat, type AgentChat } from './chat/agentRoutes.ts';
 import { parseConfig, type Config, type ConfigInput } from './config.ts';
 import { HttpError, send, serveStatic } from './http.ts';
 import { createLiveHub } from './live.ts';
+import { createMcpEndpoint, type McpEndpoint } from './mcp/endpoint.ts';
 import { createAuth, type Auth, type Identity } from './auth/index.ts';
 import { createAuthStore } from './auth/authStore.ts';
 import { isSameOrigin } from './auth/requestChecks.ts';
@@ -50,6 +52,7 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
   let events: EventBus | null = null;
   let llm: LlmContext | null = null;
   let agentChat: AgentChat | null = null;
+  let mcp: McpEndpoint | null = null;
   const ctx: Omit<ApiContext, 'store' | 'identity' | 'auth' | 'tokens' | 'access' | 'events' | 'viaToken' | 'agentChat' | 'upstreamToken'> = {
     live: createLiveHub()
   };
@@ -71,6 +74,10 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         if (req.method === 'POST' && parts.join('/') === 'auth/logout') await forgetKeyring(llm?.keys ?? null, req, res, config.publicOrigin);
         if (await auth!.handle(req, res, parts)) return;
         return send(res, 404, 'Not found');
+      }
+      if (parts.length === 1 && parts[0] === 'mcp') {
+        if (!mcp) return send(res, 404, 'Not found');
+        return await mcp.handle(req, res);
       }
 
       const isPublic = parts[0] === 'assets' || (parts.length === 1 && ['licenses', 'favicon.ico', 'login.html'].includes(parts[0]));
@@ -162,6 +169,13 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
         });
         await agentChat.sweep();
       }
+      if (config.mcp.enabled) {
+        const th = config.auth.trustedHeaders;
+        mcp = createMcpEndpoint({
+          store, access, auth, tokens, publicOrigin: config.publicOrigin, proxyAuth: config.mcp.proxyAuth,
+          secretHeaders: [th.proxySecretHeader, th.tokenHeader].filter((h): h is string => !!h)
+        });
+      }
       const documents = store;
       events.subscribe('access', (documentId) => {
         (async () => {
@@ -194,6 +208,8 @@ export function createServer(input: Config | ConfigInput): BpmnServer {
       }
       agentChat?.close();
       agentChat = null;
+      await mcp?.close();
+      mcp = null;
       await events?.close();
       events = null;
       await store?.close();

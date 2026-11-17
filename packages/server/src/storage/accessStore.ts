@@ -167,6 +167,12 @@ export function createAccessStore(db: Db) {
       return row?.role ?? 'none';
     },
 
+    /** Ids of the documents the user was given a role on (directly or through a link), deleted ones included. */
+    async grantedDocumentIds(userId: string): Promise<Set<string>> {
+      const rows = await db.read((q) => q.all<{ document_id: string }>('SELECT document_id FROM document_grants WHERE user_id = $1', [userId]));
+      return new Set(rows.map((r) => r.document_id));
+    },
+
     /** Who has access; links and pending invitations only with `forOwner`. */
     access(documentId: string, { forOwner = false } = {}): Promise<DocumentAccess> {
       return db.read(async (q) => {

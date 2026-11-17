@@ -23,6 +23,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.11",
     "@electric-sql/pglite-socket": "0.2.14",
+    "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "22.20.5",
     "@types/pg": "8.23.1",
     "bpmn-moddle": "10.3.1",

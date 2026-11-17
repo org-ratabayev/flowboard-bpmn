@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "bpmn-moddle": "10.3.1",
     "openid-client": "6.8.8",
     "pg": "8.23.1",

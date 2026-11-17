@@ -310,6 +310,46 @@ heartbeat; turns of an instance that stopped (no heartbeat for a minute) are mar
 `CHAT=off` turns off this API. The former `POST /api/projects/:id/chat` (Claude Code CLI only) is gone; the CLI is
 now a provider of this API (see [AI assistant](#ai-assistant-chat)).
 
+## MCP server
+
+AI clients that speak the Model Context Protocol (Claude Code, Claude Desktop, IDE agents) can work with your
+diagrams through `POST /mcp` (streamable HTTP, stateless; `GET` and `DELETE` answer 405). Every tool call acts as the
+signed-in user with that user's roles, read again on every call; projects you cannot open, and deleted ones, do not
+exist for it. MCP never deletes projects and never changes who has access. Tools so far: `list_diagrams` (scope
+`mine` / `shared` / `everyone` / `all`, `query`, `limit` 1-100, `offset`; returns id, name, your role, last change and
+the editor link). More tools follow.
+
+Sign-in, one of:
+
+- a personal access token (see [Access tokens](#access-tokens-api-clients)), with any `AUTH`:
+
+  ```json
+  { "mcpServers": { "flowboard": { "type": "http", "url": "https://flowboard.example.com/mcp",
+    "headers": { "Authorization": "Bearer fb_pat_..." } } } }
+  ```
+
+- opt-in, with `AUTH=trusted-headers` and `MCP_PROXY_AUTH=on`: a client that signs in at the proxy and sends the
+  proxy's own bearer token. If the request comes from the verified proxy with identity headers and a bearer that is
+  not an `fb_pat_` token, the user from the headers is used; the bearer itself is not checked or kept by this app.
+  This applies to `/mcp` only. Turn it on only if all of these hold, otherwise anyone could send
+  `Authorization: Bearer anything` with someone else's name in the identity headers:
+  1. the proxy validates the bearer on every `/mcp` request and never skips its own sign-in because a bearer is present;
+  2. the proxy overwrites or strips identity headers sent by clients, and `AUTH_SUBJECT_HEADER` (and the name and
+     email headers) are exactly the ones it sets;
+  3. `AUTH_PROXY_SECRET` stays secret, and no other host in `AUTH_TRUSTED_PROXIES` can reach the server.
+
+Browser sessions (cookies) never work on `/mcp`. A request with an `Origin` header from another site is refused
+(403); set `PUBLIC_ORIGIN` so this check uses the public address (without it, the check compares with the `Host`
+header, which a DNS-rebinding page can match; the required bearer still keeps such pages out). Anything else answers
+401 with `WWW-Authenticate: Bearer`. Requests are limited to 4 MiB. Editor links in tool results start with
+`PUBLIC_ORIGIN`; without it they use the `Host` the client sent and `http://`, which is wrong behind a proxy that
+terminates TLS.
+
+| Env var | Default | |
+|---|---|---|
+| `MCP_SERVER` | `on` | `off` turns the endpoint off (`/mcp` answers 404) |
+| `MCP_PROXY_AUTH` | off | `on` accepts the proxy's identity with the proxy's own bearer (needs `AUTH=trusted-headers` and the conditions above) |
+
 ## Plugins and upgrading
 
 The browser libraries are npm dependencies of `packages/web` (exact versions in `packages/web/package.json`), bundled
@@ -385,7 +425,8 @@ A token acts as the user who created it. Only a hash is stored; tokens can expir
 revoked at any time, and the list shows when each was last used. Tokens cannot create, list or revoke tokens: that
 needs a browser session, so a leaked token cannot hide or extend itself. Tokens cannot delete projects either. When a request carries an `Authorization`
 header, only that header counts: an invalid token is refused even if the browser also has a session cookie. A proxy
-in front of the app must therefore pass `Authorization` through unchanged and not add its own.
+in front of the app must therefore pass `Authorization` through unchanged and not add its own. The one exception is
+`/mcp` behind a trusted-headers proxy with `MCP_PROXY_AUTH=on` (see [MCP server](#mcp-server)).
 
 ### Behind a proxy (trusted headers)
 
@@ -398,6 +439,8 @@ directly could send any identity. Set at least one of:
 The user comes from `AUTH_SUBJECT_HEADER` (default `x-forwarded-user`); the optional `AUTH_NAME_HEADER` and
 `AUTH_EMAIL_HEADER` give the display name and email. Behind any proxy that terminates TLS, set `PUBLIC_ORIGIN`
 (e.g. `https://bpmn.example.com`) so cookies are marked Secure and the `Origin` check uses the public address.
+MCP clients sign in with access tokens; accepting the proxy's own sign-in on `/mcp` is a separate opt-in with extra
+requirements for the proxy (`MCP_PROXY_AUTH`, see [MCP server](#mcp-server)).
 
 ## Projects and sharing
 
