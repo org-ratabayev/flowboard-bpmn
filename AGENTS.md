@@ -170,8 +170,9 @@ Single file: `node --test test/sharing.test.mjs` (after `pnpm build`), `pnpm tes
   (`packages/server/src/server.ts`). Session and keyring cookies are `HttpOnly` and `SameSite`.
 - **Authentication everywhere** except `/assets`, `/licenses`, `/favicon.ico`, `/login.html` and the sign-in
   routes. A request with an `Authorization` header is judged by that header only (no fallback to the cookie).
-  Exception, `/mcp` only (`packages/server/src/mcp/mcpAuth.ts`): with `trusted-headers`, a non-`fb_pat_` bearer
-  from the verified proxy lets its identity headers decide; that bearer is never checked, stored or logged.
+  Exception, `/mcp` only (`packages/server/src/mcp/mcpAuth.ts`), opt-in with `MCP_PROXY_AUTH=on` (strict flag,
+  refused unless `AUTH=trusted-headers`): a non-`fb_pat_` bearer from the verified proxy lets its identity headers
+  decide; that bearer is never checked, stored or logged. Without the flag `/mcp` accepts PATs only.
   `/mcp` never accepts cookies, refuses a foreign `Origin` (403) and treats every caller like `viaToken`.
   MCP never deletes and never changes access (no such tools).
 - **Roles on the server, for every request:** `roleOf` before any project route; `none` answers 404 (ids cannot be

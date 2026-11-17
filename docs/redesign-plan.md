@@ -879,7 +879,13 @@ Decisions:
      `AUTH_TRUSTED_PROXIES`) that carries identity headers and a bearer that is **not** a `fb_pat_` token. The
      header identity is used; the bearer is only proof that this is not a cookie-driven browser request, and is
      never stored or checked by us. Only on `/mcp`; REST rules are unchanged.
-   - No cookie sessions on `/mcp`. If an `Origin` header is present it must match our origin (DNS rebinding).
+   - No cookie sessions on `/mcp`. If an `Origin` header is present it must match our origin (refuses other sites;
+     against DNS rebinding only with `PUBLIC_ORIGIN`, since otherwise the check compares with `Host`; the required
+     bearer is what keeps rebinding pages out).
+   - Amended 2026-11-17 after the 7b-1 review: (b) is a strict opt-in, `MCP_PROXY_AUTH=on` (default off; the config
+     refuses it without `trusted-headers`). Deployments where the proxy lets bearer requests through without its
+     own sign-in, or does not overwrite identity headers on them, would otherwise allow impersonation on `/mcp`.
+     The proxy requirements are listed in README "MCP server".
    - Everything else: 401 with `WWW-Authenticate: Bearer`.
    - (b) lets a deployment behind an authenticating proxy, whose MCP clients send the proxy's own bearer, work
      without PATs. It changes the AGENTS.md invariant "a request with an `Authorization` header is judged by that
@@ -931,6 +937,11 @@ present `Origin` (403), then the caller (`mcpAuth.ts`, decision 7), reads the bo
 (stateless) and the current per-request protocol work. The caller reaches the per-request server factory as SDK
 `authInfo.extra`; the bearer, `Authorization` and `Cookie` are not passed to the SDK. `McpCaller.via` is `token` or
 `proxy`; every MCP caller counts as `viaToken`, and "MCP never deletes" holds because there is no such tool.
+Review fixes: the proxy path needs `MCP_PROXY_AUTH=on`; a bearer starting with `fb_pat_` in any case is judged as a
+PAT; the proxy secret and upstream token headers are not passed to the SDK either; a too large `Content-Length` gets
+413 before the body is read. Tool handlers run in `guarded()`: a `ToolError` message reaches the client, anything
+else is logged and answered `Internal error`. Tools advertise `listChanged: false`, so `subscriptions/listen`
+(2026-07-28 protocol) is closed at once instead of holding a stream per caller.
 `list_diagrams` filters `store.listProjects(userId)` (roles per call, deleted excluded) in memory;
 `shared` needs the user's grants (`access.grantedDocumentIds`), since a granted viewer of an `everyone` project
 looks like any viewer otherwise. Tool results carry JSON text and `structuredContent` (with an output schema).

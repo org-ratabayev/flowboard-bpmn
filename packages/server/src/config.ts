@@ -147,8 +147,14 @@ const baseSchema = z.object({
     .prefault({}),
   mcp: z
     .object({
-      /** Serve the MCP endpoint POST /mcp (personal access tokens; with trusted-headers also the proxy's identity). */
-      enabled: z.boolean().default(true)
+      /** Serve the MCP endpoint POST /mcp (personal access tokens). */
+      enabled: z.boolean().default(true),
+      /**
+       * With trusted-headers: also accept the proxy's identity headers on /mcp when the client sends a bearer
+       * that is not a personal access token (the proxy's own). Opt-in: the proxy must validate that bearer on
+       * every /mcp request and overwrite the identity headers (README "MCP server").
+       */
+      proxyAuth: z.boolean().default(false)
     })
     .prefault({})
 });
@@ -174,6 +180,11 @@ export const configSchema = baseSchema
   .refine((c) => new Set((c.llm.providers ?? []).map((p) => p.id)).size === (c.llm.providers ?? []).length, {
     message: 'AI provider ids must be unique',
     path: ['llm', 'providers']
+  })
+  .refine((c) => !c.mcp.proxyAuth || c.auth.kind === 'trusted-headers', {
+    message: 'mcp.proxyAuth (MCP_PROXY_AUTH=on) takes the user from the proxy\'s identity headers, so it needs AUTH=trusted-headers; ' +
+      'remove MCP_PROXY_AUTH or switch the sign-in to trusted-headers (MCP clients can always use personal access tokens)',
+    path: ['mcp', 'proxyAuth']
   })
   .refine((c) => !c.chat.claudeCode.enabled || c.auth.kind === 'dev', {
     message: 'the Claude Code CLI provider (CHAT_CLAUDE_CODE) is for development only and needs AUTH=dev, because it bills one account for every user',
@@ -277,7 +288,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
       }
     },
     mcp: {
-      enabled: env.MCP_SERVER ? env.MCP_SERVER !== 'off' : undefined
+      enabled: env.MCP_SERVER ? env.MCP_SERVER !== 'off' : undefined,
+      proxyAuth: env.MCP_PROXY_AUTH ? env.MCP_PROXY_AUTH === 'on' : undefined
     }
   };
 }

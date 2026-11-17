@@ -8,19 +8,32 @@ import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeWebStream } from 'node:stream/web';
 import { HttpError } from '../http.ts';
 
-/** Reads the whole body (refusing more than maxBytes with 413) and builds a Request for `url`. */
-export async function toWebRequest(req: IncomingMessage, url: URL, maxBytes: number, signal: AbortSignal): Promise<Request> {
+export interface RequestOptions {
+  /** Larger bodies are refused with 413. */
+  maxBytes: number;
+  /** Aborts when the client goes away. */
+  signal: AbortSignal;
+  /** Lower-case header names left out of the Request (credentials, checked before this point). */
+  dropHeaders: string[];
+}
+
+/** Reads the whole body and builds a Request for `url`. */
+export async function toWebRequest(req: IncomingMessage, url: URL, { maxBytes, signal, dropHeaders }: RequestOptions): Promise<Request> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of req as AsyncIterable<Buffer>) {
-    size += chunk.length;
-    if (size > maxBytes) throw new HttpError(413, 'Payload too large');
-    chunks.push(chunk);
+  try {
+    for await (const chunk of req as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      if (size > maxBytes) throw new HttpError(413, 'Payload too large');
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    // a client that hangs up mid-body is not a server error
+    throw err instanceof HttpError ? err : new HttpError(400, 'Incomplete request body');
   }
   const headers = new Headers();
   for (const [name, values] of Object.entries(req.headersDistinct)) {
-    // the caller is signed in by now: credentials go no further than this server's own checks
-    if (name === 'authorization' || name === 'cookie') continue;
+    if (dropHeaders.includes(name)) continue;
     for (const value of values ?? []) headers.append(name, value);
   }
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD';

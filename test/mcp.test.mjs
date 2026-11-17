@@ -1,6 +1,7 @@
 // The MCP endpoint /mcp: sign-in rules (personal access tokens; the proxy's identity with
-// trusted-headers; no cookies), the Origin check, methods, the MCP_SERVER switch and list_diagrams,
-// driven with the official MCP client over HTTP against a real server process.
+// trusted-headers and MCP_PROXY_AUTH=on; no cookies), the Origin check, methods, both protocol eras,
+// the MCP_SERVER switch and list_diagrams, driven with the official MCP client over HTTP against a
+// real server process.
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
@@ -21,8 +22,9 @@ function post(server, headers = {}, method = 'POST') {
   });
 }
 
-async function connect(server, headers) {
-  const client = new Client({ name: 'flowboard-test', version: '1.0.0' });
+/** `modern` pins the 2026-07-28 protocol; the client's default is the 2025 handshake. */
+async function connect(server, headers, { modern = false } = {}) {
+  const client = new Client({ name: 'flowboard-test', version: '1.0.0' }, modern ? { versionNegotiation: { mode: { pin: '2026-07-28' } } } : {});
   await client.connect(new StreamableHTTPClientTransport(new URL(`${server.base}/mcp`), { requestInit: { headers } }));
   return client;
 }
@@ -54,11 +56,33 @@ describe('MCP endpoint with personal access tokens', () => {
     }
   });
 
+  it('speaks the 2026-07-28 protocol and closes subscriptions at once', async () => {
+    const client = await connect(server, { Authorization: `Bearer ${annToken}` }, { modern: true });
+    try {
+      assert.equal((await listDiagrams(client)).total, 0);
+      // nothing ever changes the tool list, so no stream is held open for it
+      const subscription = await client.listen({ toolsListChanged: true });
+      assert.notEqual(subscription.honoredFilter.toolsListChanged, true);
+      const ended = await Promise.race([subscription.closed, new Promise((resolve) => setTimeout(() => resolve('still open'), 2000))]);
+      assert.notEqual(ended, 'still open');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('refuses a token once it is revoked', async () => {
+    const { id, token } = (await server.as('Ann')('POST', '/api/tokens', { name: 'Short-lived', expiresInDays: 1 })).body;
+    assert.equal((await post(server, { Authorization: `Bearer ${token}` })).status, 200);
+    assert.equal((await server.as('Ann')('DELETE', `/api/tokens/${id}`)).status, 204);
+    assert.equal((await post(server, { Authorization: `Bearer ${token}` })).status, 401);
+  });
+
   it('answers 401 with a Bearer challenge to everything but a valid token', async () => {
     const cookie = await server.signIn('Ann');
     const attempts = {
       'no credentials': {},
       'invalid token': { Authorization: `Bearer fb_pat_${'x'.repeat(43)}` },
+      'token in the wrong case': { Authorization: `Bearer ${annToken.replace('fb_pat_', 'FB_PAT_')}` },
       'malformed header': { Authorization: annToken },
       'session cookie only': { Cookie: cookie, Origin: server.base },
       'invalid token with a cookie': { Authorization: 'Bearer fb_pat_nope', Cookie: cookie },
@@ -88,13 +112,12 @@ describe('MCP endpoint with personal access tokens', () => {
     }
   });
 
-  it('refuses bodies over 4 MiB', async () => {
-    const res = await fetch(`${server.base}/mcp`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${annToken}`, 'Content-Type': 'application/json' },
-      body: 'x'.repeat(4 * 1024 * 1024 + 1)
-    });
-    assert.equal(res.status, 413);
+  it('refuses bodies over 4 MiB, by length and while reading', async () => {
+    const big = 'x'.repeat(4 * 1024 * 1024 + 1);
+    const headers = { Authorization: `Bearer ${annToken}`, 'Content-Type': 'application/json' };
+    assert.equal((await fetch(`${server.base}/mcp`, { method: 'POST', headers, body: big })).status, 413);
+    const chunked = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(big)); c.close(); } });
+    assert.equal((await fetch(`${server.base}/mcp`, { method: 'POST', headers, body: chunked, duplex: 'half' })).status, 413);
   });
 });
 
@@ -173,52 +196,79 @@ describe('MCP list_diagrams', () => {
 
 describe('MCP behind an authenticating proxy (trusted-headers)', () => {
   const SECRET = 'proxy-secret-0123456789';
+  const PROXY_ENV = { AUTH: 'trusted-headers', AUTH_PROXY_SECRET: SECRET };
+  const viaProxy = (user) => ({ headers: { 'x-proxy-secret': SECRET, 'x-forwarded-user': user } });
   const proxied = (extra = {}) => ({ 'x-proxy-secret': SECRET, 'x-forwarded-user': 'pia', Authorization: 'Bearer proxy-issued-token', ...extra });
-  let server;
-  before(async () => { server = await startServer({ AUTH: 'trusted-headers', AUTH_PROXY_SECRET: SECRET }); });
-  after(() => server.stop());
+  const without = (headers) => Object.fromEntries(Object.entries(headers).filter(([, v]) => v !== undefined));
 
-  it('takes the identity from the proxy when a non-token bearer is sent', async () => {
-    const created = await server.anonymous('POST', '/api/projects', { name: 'Via proxy' }, { headers: { 'x-proxy-secret': SECRET, 'x-forwarded-user': 'pia' } });
-    assert.equal(created.status, 201);
-    const client = await connect(server, proxied());
-    try {
-      const { diagrams } = await listDiagrams(client);
-      assert.deepEqual(diagrams.map((d) => [d.id, d.role]), [['via-proxy', 'owner']]);
-    } finally {
-      await client.close();
-    }
+  describe('without MCP_PROXY_AUTH (default)', () => {
+    let server;
+    before(async () => { server = await startServer(PROXY_ENV); });
+    after(() => server.stop());
+
+    it('accepts personal access tokens only', async () => {
+      const res = await post(server, proxied());
+      assert.equal(res.status, 401);
+      assert.equal(res.headers.get('www-authenticate'), 'Bearer');
+      const { token } = (await server.anonymous('POST', '/api/tokens', { name: 'MCP', expiresInDays: 1 }, viaProxy('pia'))).body;
+      assert.equal((await post(server, { Authorization: `Bearer ${token}` })).status, 200);
+    });
   });
 
-  it('needs the proxy secret, the identity headers and a bearer', async () => {
-    const cases = {
-      'without the proxy secret': proxied({ 'x-proxy-secret': undefined }),
-      'with a wrong proxy secret': proxied({ 'x-proxy-secret': 'wrong-secret-0123456789' }),
-      'without identity headers': proxied({ 'x-forwarded-user': undefined }),
-      'without a bearer': proxied({ Authorization: undefined }),
-      'with an invalid personal token': proxied({ Authorization: 'Bearer fb_pat_nope' })
-    };
-    for (const [label, headers] of Object.entries(cases)) {
-      const clean = Object.fromEntries(Object.entries(headers).filter(([, v]) => v !== undefined));
-      const res = await post(server, clean);
-      assert.equal(res.status, 401, label);
-      assert.equal(res.headers.get('www-authenticate'), 'Bearer', label);
-    }
-  });
+  describe('with MCP_PROXY_AUTH=on', () => {
+    let server;
+    before(async () => {
+      server = await startServer({ ...PROXY_ENV, MCP_PROXY_AUTH: 'on' });
+      const created = await server.anonymous('POST', '/api/projects', { name: 'Via proxy' }, viaProxy('pia'));
+      assert.equal(created.status, 201);
+    });
+    after(() => server.stop());
 
-  it('keeps the REST rule: a bearer that is not a token is refused on /api', async () => {
-    assert.equal((await server.anonymous('GET', '/api/me', undefined, { headers: proxied() })).status, 401);
-  });
+    it('takes the identity from the proxy when a non-token bearer is sent', async () => {
+      for (const modern of [false, true]) {
+        const client = await connect(server, proxied(), { modern });
+        try {
+          const { diagrams } = await listDiagrams(client);
+          assert.deepEqual(diagrams.map((d) => [d.id, d.role]), [['via-proxy', 'owner']]);
+        } finally {
+          await client.close();
+        }
+      }
+    });
 
-  it('still accepts personal access tokens', async () => {
-    const viaProxy = { headers: { 'x-proxy-secret': SECRET, 'x-forwarded-user': 'pia' } };
-    const { token } = (await server.anonymous('POST', '/api/tokens', { name: 'MCP', expiresInDays: 1 }, viaProxy)).body;
-    const client = await connect(server, { Authorization: `Bearer ${token}` });
-    try {
-      assert.equal((await listDiagrams(client)).total, 1);
-    } finally {
-      await client.close();
-    }
+    it('needs the proxy secret, the identity headers and a bearer', async () => {
+      const cases = {
+        'without the proxy secret': proxied({ 'x-proxy-secret': undefined }),
+        'with a wrong proxy secret': proxied({ 'x-proxy-secret': 'wrong-secret-0123456789' }),
+        'without identity headers': proxied({ 'x-forwarded-user': undefined }),
+        'without a bearer': proxied({ Authorization: undefined }),
+        'with an invalid personal token': proxied({ Authorization: 'Bearer fb_pat_nope' })
+      };
+      for (const [label, headers] of Object.entries(cases)) {
+        const res = await post(server, without(headers));
+        assert.equal(res.status, 401, label);
+        assert.equal(res.headers.get('www-authenticate'), 'Bearer', label);
+      }
+    });
+
+    it('refuses proxy credentials from a foreign Origin', async () => {
+      assert.equal((await post(server, proxied({ Origin: 'https://evil.example.com' }))).status, 403);
+    });
+
+    it('keeps the REST rule: a bearer that is not a token is refused on /api', async () => {
+      assert.equal((await server.anonymous('GET', '/api/me', undefined, { headers: proxied() })).status, 401);
+    });
+
+    it('judges a personal access token by itself, whatever identity headers come with it', async () => {
+      // like REST: a token request is the token's user; headers naming somebody else change nothing
+      const { token } = (await server.anonymous('POST', '/api/tokens', { name: 'MCP', expiresInDays: 1 }, viaProxy('pia'))).body;
+      const client = await connect(server, { ...viaProxy('max').headers, Authorization: `Bearer ${token}` });
+      try {
+        assert.deepEqual((await listDiagrams(client)).diagrams.map((d) => [d.id, d.role]), [['via-proxy', 'owner']]);
+      } finally {
+        await client.close();
+      }
+    });
   });
 });
 

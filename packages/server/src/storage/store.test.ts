@@ -142,6 +142,19 @@ describe.each(backends)('$name store', (backend) => {
     expect((await access.access('invited', { forOwner: true })).invites).toEqual([]);
   });
 
+  it('lists the documents a user was given a role on', async () => {
+    const access = createAccessStore(store.db);
+    const auth = createAuthStore(store.db);
+    const owner = await auth.upsertUser({ provider: 'dev', subject: 'o', name: 'O', email: null });
+    const user = await auth.upsertUser({ provider: 'dev', subject: 'u', name: 'U', email: null });
+    for (const name of ['Granted', 'Linked', 'Public']) await store.createProject(name, xml('1'), 'O', owner.id);
+    await access.grant('granted', user.id, 'viewer', owner.id);
+    await access.joinByLink((await access.createLink('linked', 'editor', null, owner.id)).token, user.id);
+    await access.setVisibility('public', 'everyone', owner.id);
+    expect([...await access.grantedDocumentIds(user.id)].sort()).toEqual(['granted', 'linked']);
+    expect(await access.grantedDocumentIds(owner.id)).toEqual(new Set());
+  });
+
   it('imports a project with its history once', async () => {
     await store.createProject('Taken', xml('x'), null);
     const project = {
