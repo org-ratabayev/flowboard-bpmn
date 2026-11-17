@@ -9,6 +9,7 @@ import type { Auth } from '../auth/index.ts';
 import { isSameOrigin, isSecure } from '../auth/requestChecks.ts';
 import type { TokenStore } from '../auth/tokenStore.ts';
 import { send } from '../http.ts';
+import type { LiveHub } from '../live.ts';
 import type { AccessStore } from '../storage/accessStore.ts';
 import type { DocumentStore } from '../storage/index.ts';
 import { identifyMcpCaller, type McpCaller } from './mcpAuth.ts';
@@ -21,6 +22,7 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 export interface McpEndpointDeps {
   store: DocumentStore;
   access: AccessStore;
+  live: LiveHub;
   auth: Auth;
   tokens: TokenStore;
   publicOrigin: string | undefined;
@@ -38,7 +40,7 @@ export function createMcpEndpoint(deps: McpEndpointDeps) {
   const handler = createMcpHandler((ctx) => {
     const extra = ctx.authInfo?.extra as { caller: McpCaller; origin: string } | undefined;
     if (!extra) throw new Error('MCP request without a caller');
-    return createToolServer({ store: deps.store, access: deps.access, caller: extra.caller, origin: extra.origin });
+    return createToolServer({ store: deps.store, access: deps.access, live: deps.live, caller: extra.caller, origin: extra.origin });
   }, {
     legacy: 'stateless',
     maxRequestBodySize: MAX_BODY_BYTES,

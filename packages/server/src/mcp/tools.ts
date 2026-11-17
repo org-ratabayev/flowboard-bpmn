@@ -1,18 +1,22 @@
 // The MCP tools (section 8.1 of docs/redesign-plan.md), registered on a fresh McpServer for every
 // request and caller. Tools reuse the stores the REST routes use and read the caller's role on every
-// call; projects without access, deleted ones included, look like they do not exist. Errors: invalid
-// arguments are answered by the SDK, a ToolError is shown to the client, anything else is logged and
-// reported as "Internal error" (like a 500 on REST: database details never reach the client).
+// call; projects without access, deleted ones included, look like they do not exist (toolResults.ts
+// for errors). This file has the list; tools on one project are in projectTools.ts.
 
-import { McpServer, type CallToolResult } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import type { LiveHub } from '../live.ts';
 import type { AccessStore } from '../storage/accessStore.ts';
 import type { DocumentStore } from '../storage/index.ts';
 import type { McpCaller } from './mcpAuth.ts';
+import { registerProjectTools } from './projectTools.ts';
+import { guarded, jsonResult } from './toolResults.ts';
 
 export interface ToolContext {
   store: DocumentStore;
   access: AccessStore;
+  /** Live rooms of this instance (unsaved drafts). */
+  live: LiveHub;
   caller: McpCaller;
   /** PUBLIC_ORIGIN, or the origin the request was sent to; editor links start with it. */
   origin: string;
@@ -33,24 +37,6 @@ const diagramEntry = z.object({
   updatedAt: z.string(),
   url: z.string()
 });
-
-/** An expected failure whose message the MCP client may see (for example "Diagram not found"). */
-export class ToolError extends Error {}
-
-const errorResult = (text: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text }] });
-
-/** Wraps a tool handler so that only ToolError messages reach the client. */
-function guarded<A>(tool: string, run: (args: A) => Promise<CallToolResult>): (args: A) => Promise<CallToolResult> {
-  return async (args) => {
-    try {
-      return await run(args);
-    } catch (err) {
-      if (err instanceof ToolError) return errorResult(err.message);
-      console.error(`MCP tool ${tool} failed:`, err);
-      return errorResult('Internal error');
-    }
-  };
-}
 
 export function createToolServer(ctx: ToolContext): McpServer {
   // listChanged off: the tool list never changes, so `subscriptions/listen` (2026-07-28 protocol) is
@@ -82,9 +68,9 @@ export function createToolServer(ctx: ToolContext): McpServer {
       updatedAt: p.updatedAt,
       url: `${ctx.origin}/p/${encodeURIComponent(p.id)}`
     }));
-    const result = { diagrams, total: matching.length, offset, limit };
-    return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    return jsonResult({ diagrams, total: matching.length, offset, limit });
   }));
 
+  registerProjectTools(server, ctx);
   return server;
 }

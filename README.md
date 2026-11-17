@@ -315,9 +315,20 @@ now a provider of this API (see [AI assistant](#ai-assistant-chat)).
 AI clients that speak the Model Context Protocol (Claude Code, Claude Desktop, IDE agents) can work with your
 diagrams through `POST /mcp` (streamable HTTP, stateless; `GET` and `DELETE` answer 405). Every tool call acts as the
 signed-in user with that user's roles, read again on every call; projects you cannot open, and deleted ones, do not
-exist for it. MCP never deletes projects and never changes who has access. Tools so far: `list_diagrams` (scope
-`mine` / `shared` / `everyone` / `all`, `query`, `limit` 1-100, `offset`; returns id, name, your role, last change and
-the editor link). More tools follow.
+exist for it ("Diagram not found"). MCP never deletes projects and never changes who has access. Read tools:
+
+| Tool | Role | Returns |
+|---|---|---|
+| `list_diagrams` | – | diagrams you can open: `scope` (`mine` / `shared` / `everyone` / `all`), `query`, `limit` 1-100, `offset`; id, name, your role, last change, editor link |
+| `get_diagram` | viewer | XML, name, your role, editor link and the saved `versionId`; `includeUnsaved` adds the unsaved changes of people editing right now (`dirty`), as far as they are connected to the same server instance |
+| `get_diagram_summary` | viewer | processes, participants, lanes, nodes and flows without layout (also `includeUnsaved`); `problems` when the stored XML does not parse |
+| `list_versions` | viewer | saved versions, newest first (`limit` 1-100, default 20, `offset`): id, time, author, source, note |
+| `get_version` | viewer | XML and details of one version of that diagram |
+| `export_diagram` | viewer | the `.bpmn` file (latest or `versionId`) with a file name; images come from the editor |
+| `list_shares` | owner | visibility, members, share links (id, role, dates; never the link itself) and pending invitations |
+
+Diagrams larger than 4 MB are not returned or summarized over MCP (the tool answers with the editor link instead).
+Write tools follow.
 
 Sign-in, one of:
 
