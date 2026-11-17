@@ -122,7 +122,7 @@ browser ──HTTP/SSE──▶ server (createServer)
 | Postgres | `pg` |
 | SQLite | `node:sqlite` (built in) |
 | OIDC client | `openid-client` |
-| MCP server + client | `@modelcontextprotocol/sdk`, `@modelcontextprotocol/ext-apps` |
+| MCP server + client | `@modelcontextprotocol/server` and `/client` (v2), `@modelcontextprotocol/ext-apps` |
 | Anthropic | `@anthropic-ai/sdk` (Messages API tool loop) or `@anthropic-ai/claude-agent-sdk` |
 | OpenAI-compatible | `openai` (custom `baseURL`) |
 | BPMN parsing server-side | `bpmn-moddle` (validate XML, read element ids/names) |
@@ -535,7 +535,7 @@ Example client config (Claude Code / Claude Desktop):
 | `create_diagram` | – | name + optional XML (validated with `validateBpmn`: parse, warnings, DI); returns id + editor URL |
 | `update_diagram` | editor | full XML (validated) + `baseVersionId`; creates a version with `source='mcp'`; `409 stale` if the base is old, `409 unsaved-changes` while an editor with unsaved changes is connected (the agent should tell the user to save first) |
 | `rename_diagram` | editor | |
-| `list_versions` / `get_version` / `restore_version` | viewer / viewer / editor | restore validates the old XML like update |
+| `list_versions` / `get_version` / `restore_version` | viewer / viewer / editor | restore re-saves an accepted version, no new validation |
 | `export_diagram` | viewer | `.bpmn` text; SVG is produced by the MCP Apps viewer (no headless rendering on the server) |
 | `list_shares` | owner | read-only, always available |
 
@@ -831,8 +831,8 @@ model asks); the CLI provider still works in dev mode.
 Tasks:
 1. `/mcp` with the official SDK (8); tools from 8.1 implemented on top of the same repositories and `resolveRole`.
 2. PAT auth for `/mcp`; documentation with a client config example.
-3. Live broadcast of MCP saves; `409` when stale or when unsaved live changes exist.
-4. Tests with the SDK's client against the in-memory server; role matrix for tools.
+3. Live broadcast of MCP saves; `409 stale` for an old base, `409 unsaved-changes` only while an editor with unsaved changes is connected.
+4. Tests with the SDK client against a real server process over HTTP; role matrix for tools.
 
 Acceptance: Claude Code configured with a PAT can list, read, create and update diagrams; a viewer PAT cannot
 update; an open editor shows the MCP update live.
@@ -859,10 +859,14 @@ Decisions:
 4. **Sharing:** `list_shares` (owner, read-only, always available, no flag). No `share_diagram`: granting, changing
    and revoking access stays in the Share dialog, because a share leaks data irreversibly and an AI client reading
    untrusted content could be tricked into sharing. `MCP_SHARING_TOOLS` / `mcp.allowSharingTools` are dropped.
-5. **Validation:** `bpmn-moddle@10.3.1` as a server dependency. MCP create, update and restore reject XML that
+5. **Validation:** `bpmn-moddle@10.3.1` as a server dependency. MCP create and update reject XML that
    fails to parse, has import warnings (unknown elements, unresolved references), or has a flow node or sequence
    flow without DI (BPMNShape / BPMNEdge), the most common AI mistake. Participants, lanes and message flows must
-   be drawn too; data objects, annotations and associations need not. `get_diagram_summary` uses the parsed model.
+   REST saves stay unchanged (regex `looksLikeBpmn`). Requiring DI for participants, lanes and message flows
+   (beyond the flow nodes and sequence flows named in the decision) is a deliberate extension, because bpmn-js needs
+   it to render them. A shape needs `dc:Bounds`, an edge at least two waypoints, and the DI kind must match.
+   `restore_version` runs no new validation: it re-saves an already accepted version (only the size cap and
+   `looksLikeBpmn` apply), so versions saved by REST or import stay restorable.
    REST saves stay unchanged (regex `looksLikeBpmn`).
 6. **Unsaved live changes:** 409 `unsaved-changes` only while an editor with unsaved changes is connected to the
    live room. If the draft is abandoned (nobody connected), the MCP write proceeds and discards it. A stale base
@@ -896,23 +900,23 @@ Assumptions (minor):
 - `list_diagrams` scopes: `mine` (owned), `shared` (granted), `everyone` (visible to all, neither owned nor
   granted), `all`; case-insensitive match of name and id on `query`; `limit` 1-100 (default 50), `offset`.
 - `restore_version` (editor): `versionId` + `baseVersionId`; saves the old XML as a new version with source
-  `restore` and note "Restored version from …"; same validation and 409 rules as update.
+  `restore` and note "Restored version from …"; same 409 rules as update, no new validation (decision 5).
 - `get_diagram` with `includeUnsaved` returns the live draft and a `dirty` flag.
 - The role is re-read on every tool call; no access gives a "not found" tool error (the 404 equivalent).
-- Requests and diagrams are capped at 20 MB, as in REST.
+- Diagrams are capped at 4 MiB on MCP writes (the SDK default for `maxRequestBodySize`): parsing 20 MB blocks the event loop for about 2 s and uses about 300 MB of heap. REST keeps 20 MB.
 - Tests: `test/mcp.test.mjs` with the SDK client against a real server process over HTTP (SQLite and PGlite); role
   matrix with viewer, editor and owner tokens; session cookie without a token, invalid token, proxy identity with
   and without bearer, foreign `Origin`, stale base, unsaved live changes, the live `saved` event on an open
   stream. Unit tests for validation and summary (7a).
 - Not in phase 7: rate limits on access-token use (13), which REST does not have either.
 
-### 7a implementation notes
+#### 7a implementation notes
 
 `packages/server/src/bpmnModel.ts`: `validateBpmn(xml)` returns `{ ok: true, definitions }` or
 `{ ok: false, problems }` (at most 20 short strings with element ids, e.g. `Task "Pack" has no BPMNShape in the
 diagram`); `summarizeBpmn(xml)` / `summarizeDefinitions(definitions)` return a compact summary (processes,
 participants, lanes, flow nodes with lane and parent sub-process, sequence flows with condition / default marks,
-message flows, counts), without layout or documentation text. Shapes are required for flow nodes (boundary events
+message flows, counts, boundary hosts, event triggers, import warning count), without layout or text. Shapes are required for flow nodes (boundary events
 included), lanes and participants, edges for sequence flows and message flows; any diagram in the file counts, so
 collapsed sub-processes with their own plane work.
 
@@ -1077,4 +1081,4 @@ Acceptance: a new developer can follow README to run the core with SQLite in und
 | Q3 | Do viewers see version history including author names? | yes |
 | Q4 | Allow anonymous (not signed-in) access via share links? | no |
 | Q5 | Soft-delete retention period? | 30 days |
-| Q6 | Should MCP clients be allowed to change sharing (`share_diagram`)? | no (config flag, off) |
+| Q6 | Should MCP clients be allowed to change sharing (`share_diagram`)? | No. Answered: no `share_diagram`, no flag; `list_shares` is read-only for owners (Phase 7, decision 4) |
