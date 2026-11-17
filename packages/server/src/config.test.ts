@@ -38,7 +38,8 @@ describe('parseConfig', () => {
         idleDays: 30,
         workDir: path.join(os.tmpdir(), 'bpmn-chat'),
         claudeCode: { enabled: false, bin: 'claude', model: '', timeoutMs: 300000 }
-      }
+      },
+      mcp: { enabled: true }
     });
   });
 
@@ -75,7 +76,8 @@ describe('configFromEnv', () => {
       auth: { oidc: {}, trustedHeaders: {} },
       llm: {},
       storage: { kind: undefined, sqlitePath: undefined, postgresUrl: undefined, postgresPoolSize: undefined, importOnFirstStart: undefined },
-      chat: { enabled: false, claudeCode: { bin: '/bin/claude', model: 'sonnet', timeoutMs: 1000 } }
+      chat: { enabled: false, claudeCode: { bin: '/bin/claude', model: 'sonnet', timeoutMs: 1000 } },
+      mcp: {}
     });
   });
 
@@ -87,8 +89,8 @@ describe('configFromEnv', () => {
   });
 
   it('leaves unset and empty variables out', () => {
-    const merged = mergeConfig(configFromEnv({ CLAUDE_MODEL: '', CHAT: '' }));
-    expect(merged).toEqual({ auth: { oidc: {}, trustedHeaders: {} }, storage: {}, llm: {}, chat: { claudeCode: {} } });
+    const merged = mergeConfig(configFromEnv({ CLAUDE_MODEL: '', CHAT: '', MCP_SERVER: '' }));
+    expect(merged).toEqual({ auth: { oidc: {}, trustedHeaders: {} }, storage: {}, llm: {}, chat: { claudeCode: {} }, mcp: {} });
   });
 
   it('maps auth variables', () => {
@@ -110,6 +112,12 @@ describe('configFromEnv', () => {
 
   it('treats any CHAT value other than "off" as on', () => {
     expect(configFromEnv({ CHAT: 'on' }).chat?.enabled).toBe(true);
+  });
+
+  it('turns the MCP endpoint off only with MCP_SERVER=off', () => {
+    expect(configFromEnv({ MCP_SERVER: 'off' }).mcp?.enabled).toBe(false);
+    expect(configFromEnv({ MCP_SERVER: 'on' }).mcp?.enabled).toBe(true);
+    expect(parseConfig(mergeConfig({ publicDir: '/p' }, configFromEnv({}))).mcp.enabled).toBe(true);
   });
 
   it('reads the chat settings of the assistant', () => {

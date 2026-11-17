@@ -144,6 +144,12 @@ const baseSchema = z.object({
         })
         .prefault({})
     })
+    .prefault({}),
+  mcp: z
+    .object({
+      /** Serve the MCP endpoint POST /mcp (personal access tokens; with trusted-headers also the proxy's identity). */
+      enabled: z.boolean().default(true)
+    })
     .prefault({})
 });
 
@@ -269,6 +275,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv): PartialConfigInput {
         model: env.CLAUDE_MODEL || undefined,
         timeoutMs: number('CHAT_TIMEOUT_MS')
       }
+    },
+    mcp: {
+      enabled: env.MCP_SERVER ? env.MCP_SERVER !== 'off' : undefined
     }
   };
 }

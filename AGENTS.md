@@ -11,13 +11,13 @@ or Postgres; sign-in (`dev`, `trusted-headers`, `oidc`) and personal access toke
 editor / viewer, share links, email invites, audit log); owner-only project delete (soft by default, admin restore
 via the CLI, optional permanent delete); live collaboration over SSE with live role changes; an AI
 assistant that edits the open diagram through editor tools, as proposals the user keeps or undoes, on a server-side
-agent loop with configurable providers (Anthropic, OpenAI-compatible). An MCP server and an MCP client in chat are
-planned.
+agent loop with configurable providers (Anthropic, OpenAI-compatible); an MCP server at `/mcp` for AI clients
+(personal access tokens; tools being added). An MCP client in chat is planned.
 
 - User-facing behaviour, env vars and APIs: `README.md` (authoritative for users).
 - Full design and phase plan: `docs/redesign-plan.md`. Done: phases 1-6 (6a providers and keys, 6b agent loop,
-  6c chat UI and editor tools). In progress: 7 (MCP server; 7a validation done, 7b endpoint and read tools, 7c
-  write tools; decisions in the plan). Postponed: 9 (MCP client in chat; findings in the plan). Later: 8 (MCP
+  6c chat UI and editor tools). In progress: 7 (MCP server; 7a validation and 7b-1 endpoint done, 7b-2 read
+  tools, 7c write tools; decisions in the plan). Postponed: 9 (MCP client in chat; findings in the plan). Later: 8 (MCP
   Apps), 10 (docs, example deployment). Where the plan's target layout
   (section 3.1: a shared package, config/ and routes/ folders, a lint step, a dev script) differs from the code,
   the code is what exists today.
@@ -48,7 +48,7 @@ Server (`packages/server/src/`):
 
 | Path | What |
 |---|---|
-| `packages/server/src/server.ts` | `createServer`: CSRF Origin check, authentication (token or session), top-level routing (`/auth`, pages, static, `/api/llm`, `/api`), startup wiring, error handler |
+| `packages/server/src/server.ts` | `createServer`: CSRF Origin check, authentication (token or session), top-level routing (`/auth`, `/mcp`, pages, static, `/api/llm`, `/api`), startup wiring, error handler |
 | `packages/server/src/routes.ts` | `/api/me`, `/api/tokens`, `/api/users`, `/api/share/join`, `/api/projects/...` (role check, delete, access, live, history, download, chat dispatch) |
 | `packages/server/src/http.ts` | `send`, `readJson`, `HttpError`, `PAGE_CSP`, `serveStatic` |
 | `packages/server/src/config.ts` | zod `configSchema`, `configFromEnv` (env var mapping), `mergeConfig`, `loadConfigFromEnv`, `defineConfig` |
@@ -58,6 +58,7 @@ Server (`packages/server/src/`):
 | `packages/server/src/bpmn.ts` | `looksLikeBpmn`, `EMPTY_DIAGRAM` |
 | `packages/server/src/bpmnModel.ts` | bpmn-moddle parsing: `validateBpmn` (parse errors, warnings, missing DI), `summarizeBpmn`; for the MCP tools, not REST saves (`bpmnModdleTypes.d.ts` types the library) |
 | `packages/server/src/auth/` | `index.ts` (`createAuth`: dev, trusted-headers), `oidc.ts`, `common.ts` (sessions), `authStore.ts` (users, sessions), `tokenStore.ts` (PATs), `requestChecks.ts` (cookies, `isSameOrigin`, proxy address matching) |
+| `packages/server/src/mcp/` | MCP server: `endpoint.ts` (`POST /mcp`, SDK handler, Origin check), `mcpAuth.ts` (who may call: PAT, or the trusted proxy's identity), `nodeBridge.ts` (`node:http` to `Request`/`Response`), `tools.ts` (the tools) |
 | `packages/server/src/storage/` | `db.ts` (`Db` abstraction), `sqliteDb.ts`, `postgresDb.ts`, `migrations.ts`, `sqlStore.ts` (documents, versions, soft delete / purge / restore), `accessStore.ts` (roles, grants, links, invites, audit), `folder.ts` (import/export), `index.ts` (`openStore`), `testBackends.ts` |
 | `packages/server/src/llm/` | `types.ts` (`LlmProvider`, content blocks, `Credentials`), `catalog.ts` (provider list, credential sources), `anthropic.ts`, `openai.ts`, `keyStore.ts` (encrypted personal keys), `routes.ts` (`/api/llm`, model lists, `redact`), `sse.ts`, `claudeCodeCli.ts` (dev-only Claude Code CLI provider) |
 | `packages/server/src/chat/` | AI chat: `agentLoop.ts` (one turn: model calls, tool calls, role re-check), `agentRoutes.ts` (chat routes, limits), `conversationStore.ts` (conversations, messages, turns, tool calls, rate limit), `toolSpecs.ts` (browser tools, `toolsForRole`, `toolRefusal`), `attachments.ts`, `systemPrompt.ts` with `packages/server/src/chat/prompts/bpmn-assistant.md`, `history.ts` (provider-valid history), `signals.ts` (wake the instance running a turn) |
@@ -169,6 +170,10 @@ Single file: `node --test test/sharing.test.mjs` (after `pnpm build`), `pnpm tes
   (`packages/server/src/server.ts`). Session and keyring cookies are `HttpOnly` and `SameSite`.
 - **Authentication everywhere** except `/assets`, `/licenses`, `/favicon.ico`, `/login.html` and the sign-in
   routes. A request with an `Authorization` header is judged by that header only (no fallback to the cookie).
+  Exception, `/mcp` only (`packages/server/src/mcp/mcpAuth.ts`): with `trusted-headers`, a non-`fb_pat_` bearer
+  from the verified proxy lets its identity headers decide; that bearer is never checked, stored or logged.
+  `/mcp` never accepts cookies, refuses a foreign `Origin` (403) and treats every caller like `viaToken`.
+  MCP never deletes and never changes access (no such tools).
 - **Roles on the server, for every request:** `roleOf` before any project route; `none` answers 404 (ids cannot be
   probed); minimum role per action. A soft-deleted project (`documents.deleted_at`) is `none` for everyone: every
   new query that reaches documents (lists, links, invites, saves) must filter `deleted_at IS NULL`; housekeeping
