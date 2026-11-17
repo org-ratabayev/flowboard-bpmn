@@ -16,8 +16,9 @@ planned.
 
 - User-facing behaviour, env vars and APIs: `README.md` (authoritative for users).
 - Full design and phase plan: `docs/redesign-plan.md`. Done: phases 1-6 (6a providers and keys, 6b agent loop,
-  6c chat UI and editor tools). Postponed: 7 (MCP server) and 9 (MCP client in chat); findings and open
-  decisions in the plan under each phase. Later: 8 (MCP Apps), 10 (docs, example deployment). Where the plan's target layout
+  6c chat UI and editor tools). In progress: 7 (MCP server; 7a validation done, 7b endpoint and read tools, 7c
+  write tools; decisions in the plan). Postponed: 9 (MCP client in chat; findings in the plan). Later: 8 (MCP
+  Apps), 10 (docs, example deployment). Where the plan's target layout
   (section 3.1: a shared package, config/ and routes/ folders, a lint step, a dev script) differs from the code,
   the code is what exists today.
 
@@ -55,6 +56,7 @@ Server (`packages/server/src/`):
 | `packages/server/src/events.ts` | Event bus with topics `access` (also sent when a project is deleted), `chat`; in-process or Postgres LISTEN/NOTIFY (one channel per topic); payload is an id only |
 | `packages/server/src/live.ts` | Live rooms: presence, cursors, shared unsaved diagram (in memory), live role refresh, closing rooms of deleted projects |
 | `packages/server/src/bpmn.ts` | `looksLikeBpmn`, `EMPTY_DIAGRAM` |
+| `packages/server/src/bpmnModel.ts` | bpmn-moddle parsing: `validateBpmn` (parse errors, warnings, missing DI), `summarizeBpmn`; for the MCP tools, not REST saves (`bpmnModdleTypes.d.ts` types the library) |
 | `packages/server/src/auth/` | `index.ts` (`createAuth`: dev, trusted-headers), `oidc.ts`, `common.ts` (sessions), `authStore.ts` (users, sessions), `tokenStore.ts` (PATs), `requestChecks.ts` (cookies, `isSameOrigin`, proxy address matching) |
 | `packages/server/src/storage/` | `db.ts` (`Db` abstraction), `sqliteDb.ts`, `postgresDb.ts`, `migrations.ts`, `sqlStore.ts` (documents, versions, soft delete / purge / restore), `accessStore.ts` (roles, grants, links, invites, audit), `folder.ts` (import/export), `index.ts` (`openStore`), `testBackends.ts` |
 | `packages/server/src/llm/` | `types.ts` (`LlmProvider`, content blocks, `Credentials`), `catalog.ts` (provider list, credential sources), `anthropic.ts`, `openai.ts`, `keyStore.ts` (encrypted personal keys), `routes.ts` (`/api/llm`, model lists, `redact`), `sse.ts`, `claudeCodeCli.ts` (dev-only Claude Code CLI provider) |

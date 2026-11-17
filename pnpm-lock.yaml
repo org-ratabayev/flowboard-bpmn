@@ -208,6 +208,9 @@ importers:
 
   packages/server:
     dependencies:
+      bpmn-moddle:
+        specifier: 10.3.1
+        version: 10.3.1
       openid-client:
         specifier: 6.8.8
         version: 6.8.8
