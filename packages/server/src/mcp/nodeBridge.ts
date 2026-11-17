@@ -24,13 +24,15 @@ export async function toWebRequest(req: IncomingMessage, url: URL, { maxBytes, s
   try {
     for await (const chunk of req as AsyncIterable<Buffer>) {
       size += chunk.length;
-      if (size > maxBytes) throw new HttpError(413, 'Payload too large');
-      chunks.push(chunk);
+      // past the cap, keep reading (and dropping) so the client gets the 413 instead of a reset; far past it, stop
+      if (size > 4 * maxBytes) break;
+      if (size <= maxBytes) chunks.push(chunk);
     }
-  } catch (err) {
+  } catch {
     // a client that hangs up mid-body is not a server error
-    throw err instanceof HttpError ? err : new HttpError(400, 'Incomplete request body');
+    throw new HttpError(400, 'Incomplete request body');
   }
+  if (size > maxBytes) throw new HttpError(413, 'Payload too large');
   const headers = new Headers();
   for (const [name, values] of Object.entries(req.headersDistinct)) {
     if (dropHeaders.includes(name)) continue;

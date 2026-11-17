@@ -75,8 +75,11 @@ export function createMcpEndpoint(deps: McpEndpointDeps) {
         return send(res, 401, { error: 'Sign in with a personal access token: Authorization: Bearer fb_pat_…' }, { 'WWW-Authenticate': 'Bearer' });
       }
       if (Number(req.headers['content-length']) > MAX_BODY_BYTES) {
-        // answer before the body is sent, then close: reading it would only waste time
-        return send(res, 413, { error: 'Payload too large' }, { Connection: 'close' });
+        // answer without buffering the body, but let it drain: closing while the client still uploads resets
+        // the connection before it reads the 413; a body far beyond the cap is cut off instead
+        let dropped = 0;
+        req.on('data', (chunk: Buffer) => { if ((dropped += chunk.length) > 4 * MAX_BODY_BYTES) req.destroy(); });
+        return send(res, 413, { error: 'Payload too large' });
       }
       const origin = originOf(req);
       const closed = new AbortController();
